@@ -1,0 +1,17 @@
+{
+  "name": "discord-ticket-middleman-bot",
+  "version": "1.0.0",
+  "description": "Discord ticket bot with key system and middleman features",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "author": "Schior",
+  "license": "MIT"
+}
