@@ -63,7 +63,7 @@ async function updateTicketPerms(channel, ticket, setup) {
     ticket.addedUsers.forEach(uid => {
       channel.permissionOverwrites.edit(uid, { SendMessages: true }).catch(() => {});
     });
-    if (setup.helperRole) await channel.permissionOverwrites.edit(setup.helperRole, { SendMessages: true });
+    if (setup.hitterRole) await channel.permissionOverwrites.edit(setup.hitterRole, { SendMessages: true });
     if (setup.coOwnerRole) await channel.permissionOverwrites.edit(setup.coOwnerRole, { SendMessages: true });
   } catch (err) {
     console.error('Permission update failed:', err.message);
@@ -79,7 +79,7 @@ client.on('messageCreate', async message => {
   const setup = data.guilds[guildId].setup;
   const userMode = data.userModes[userId];
 
-  // Handle mode choice (just reply 1 or 2)
+  // Handle mode choice
   if (userMode && userMode.mode === null) {
     const content = message.content.trim();
     if (content === '1' || content === '2') {
@@ -107,7 +107,7 @@ client.on('messageCreate', async message => {
     return message.reply(`**${type} key activated successfully!**\nReply with **1** for Ticket bot\nReply with **2** for Middleman bot`);
   }
 
-  // $shazam setup
+  // $shazam setup wizard
   if (cmd === 'shazam') {
     if (!userMode || userMode.mode === null) return message.reply('You must redeem a key and select a mode first.');
     if (userMode.type === '3months') {
@@ -130,9 +130,9 @@ client.on('messageCreate', async message => {
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
     setup.middlemanRole = ans;
 
-    ans = await askQuestion(message.channel, userId, 'Helper role ID:');
+    ans = await askQuestion(message.channel, userId, 'Hitter role ID:');
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
-    setup.helperRole = ans;
+    setup.hitterRole = ans;
 
     let valid = false;
     while (!valid) {
@@ -265,7 +265,7 @@ client.on('interactionCreate', async interaction => {
       { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
     ];
 
-    ['middlemanRole', 'helperRole', 'coOwnerRole'].forEach(role => {
+    ['middlemanRole', 'hitterRole', 'coOwnerRole'].forEach(role => {
       if (setup[role]) {
         overwrites.push({
           id: setup[role],
