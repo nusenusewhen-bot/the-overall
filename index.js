@@ -1,4 +1,16 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionsBitField, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { 
+  Client, 
+  GatewayIntentBits, 
+  EmbedBuilder, 
+  ActionRowBuilder, 
+  ButtonBuilder, 
+  ButtonStyle, 
+  ChannelType, 
+  PermissionsBitField, 
+  ModalBuilder, 
+  TextInputBuilder, 
+  TextInputStyle 
+} = require('discord.js');
 const fs = require('fs');
 
 const config = require('./config.json');
@@ -247,52 +259,171 @@ client.on('messageCreate', async message => {
 });
 
 client.on('interactionCreate', async interaction => {
-  if (interaction.isButton()) {
-    const setup = data.guilds[interaction.guild.id]?.setup || {};
-    const ticket = data.tickets[interaction.channel?.id];
+  if (!interaction.isButton() && !interaction.isModalSubmit()) return;
 
-    if (interaction.customId === 'request_ticket') {
-      const modal = new ModalBuilder()
-        .setCustomId('ticket_modal')
-        .setTitle('Trade Ticket Form');
+  const setup = data.guilds[interaction.guild.id]?.setup || {};
+  const ticket = data.tickets[interaction.channel?.id];
 
-      const otherIdInput = new TextInputBuilder()
-        .setCustomId('other_id')
-        .setLabel("What's the other person's ID / username?")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)
-        .setPlaceholder('123456789012345678 or username');
+  // === BUTTON: Request ticket ===
+  if (interaction.isButton() && interaction.customId === 'request_ticket') {
+    const modal = new ModalBuilder()
+      .setCustomId('ticket_modal')
+      .setTitle('Trade Ticket Form');
 
-      const tradeInput = new TextInputBuilder()
-        .setCustomId('trade_desc')
-        .setLabel('Describe the trade (items, values, etc.)')
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true)
-        .setPlaceholder('I give 250M Rainbow Secret for their 50M Ketupat Kepat Secret...');
+    const otherIdInput = new TextInputBuilder()
+      .setCustomId('other_id')
+      .setLabel("What's the other person's ID / username?")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true)
+      .setPlaceholder('123456789012345678 or username');
 
-      const psInput = new TextInputBuilder()
-        .setCustomId('private_servers')
-        .setLabel('Can both join private servers?')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(false)
-        .setPlaceholder('Yes / No / One can, other cannot');
+    const tradeInput = new TextInputBuilder()
+      .setCustomId('trade_desc')
+      .setLabel('Describe the trade (items, values, etc.)')
+      .setStyle(TextInputStyle.Paragraph)
+      .setRequired(true)
+      .setPlaceholder('I give 250M Rainbow Secret for their 50M Ketupat Kepat Secret...');
 
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(otherIdInput),
-        new ActionRowBuilder().addComponents(tradeInput),
-        new ActionRowBuilder().addComponents(psInput)
-      );
+    const psInput = new TextInputBuilder()
+      .setCustomId('private_servers')
+      .setLabel('Can both join private servers?')
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false)
+      .setPlaceholder('Yes / No / One can, other cannot');
 
-      await interaction.showModal(modal);
-      return;
-    }
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(otherIdInput),
+      new ActionRowBuilder().addComponents(tradeInput),
+      new ActionRowBuilder().addComponents(psInput)
+    );
 
-    // ... keep all other button handlers (claim, unclaim, close, transfer, add) as before ...
+    await interaction.showModal(modal);
+    return;
   }
 
+  // === BUTTONS: Claim, Unclaim, Close, etc. ===
+  if (interaction.isButton() && ticket) {
+    await interaction.deferReply({ ephemeral: true });
+
+    const isMiddleman = interaction.member.roles.cache.has(setup.middlemanRole);
+    const isCoOwner = interaction.member.roles.cache.has(setup.coOwnerRole);
+
+    if (interaction.customId === 'claim_ticket') {
+      if (ticket.claimedBy) return interaction.editReply('Already claimed.');
+      if (!isMiddleman) return interaction.editReply('Only middlemen can claim.');
+      ticket.claimedBy = interaction.user.id;
+      saveData();
+      await updateTicketPerms(interaction.channel, ticket, setup);
+      await interaction.editReply('✅ Ticket claimed.');
+    }
+
+    else if (interaction.customId === 'unclaim_ticket') {
+      if (!ticket.claimedBy) return interaction.editReply('Not claimed.');
+      if (ticket.claimedBy !== interaction.user.id && !isCoOwner) {
+        return interaction.editReply('Only the claimer or co-owner can unclaim.');
+      }
+      ticket.claimedBy = null;
+      saveData();
+      await updateTicketPerms(interaction.channel, ticket, setup);
+      await interaction.editReply('Ticket unclaimed.');
+    }
+
+    else if (interaction.customId === 'close_ticket') {
+      if (ticket.claimedBy !== interaction.user.id && !isCoOwner) {
+        return interaction.editReply('Only the claimer or co-owner can close.');
+      }
+      try {
+        const msgs = await interaction.channel.messages.fetch({ limit: 100 });
+        const log = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[media]'}`).join('\n');
+        const tc = interaction.guild.channels.cache.get(setup.transcriptsChannel);
+        if (tc) await tc.send(`**Transcript – ${interaction.channel.name}**\n\`\`\`\n${log.slice(0, 1900)}\n\`\`\``);
+        await interaction.editReply('Closing ticket...');
+        await interaction.channel.delete();
+      } catch (err) {
+        console.error('Close failed:', err.message);
+        await interaction.editReply('Error while closing.');
+      }
+    }
+
+    else if (interaction.customId === 'add_ticket') {
+      await interaction.editReply('Use `$add @user` or `$add ID` to add someone.');
+    }
+
+    else if (interaction.customId === 'transfer_ticket') {
+      await interaction.editReply('Use `$transfer @user` or `$transfer ID` to transfer (target must be middleman).');
+    }
+  }
+
+  // === MODAL SUBMIT ===
   if (interaction.isModalSubmit() && interaction.customId === 'ticket_modal') {
     await interaction.deferReply({ ephemeral: true });
 
     const otherId = interaction.fields.getTextInputValue('other_id')?.trim() || 'Not provided';
     const tradeDesc = interaction.fields.getTextInputValue('trade_desc')?.trim() || 'Not provided';
-    const privateServers = interaction.fields.getTextInputValue('private_servers')?.trim
+    const privateServers = interaction.fields.getTextInputValue('private_servers')?.trim() || 'Not provided';
+
+    const userInfo = `**Other person's ID / username:** ${otherId}\n` +
+                     `**Trade description:** ${tradeDesc}\n` +
+                     `**Can both join private servers?** ${privateServers}`;
+
+    const verifyLink = setup.verificationLink || 'Not set in setup';
+
+    try {
+      await interaction.user.send(`**Verification required**\nPlease complete verification here before trading:\n${verifyLink}\n\nYour ticket is being created.`);
+    } catch (dmErr) {
+      console.log(`DM failed to ${interaction.user.tag}: ${dmErr.message}`);
+      await interaction.followUp({ 
+        content: 'Could not DM verification link (DMs may be closed). Enable DMs from server members or ask staff.', 
+        ephemeral: true 
+      });
+    }
+
+    const overwrites = [
+      { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+      { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
+    ];
+
+    ['middlemanRole', 'hitterRole', 'coOwnerRole'].forEach(roleKey => {
+      if (setup[roleKey]) {
+        overwrites.push({
+          id: setup[roleKey],
+          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory]
+        });
+      }
+    });
+
+    try {
+      const channel = await interaction.guild.channels.create({
+        name: `ticket-${interaction.user.username.toLowerCase()}`,
+        type: ChannelType.GuildText,
+        parent: interaction.channel.parentId,
+        permissionOverwrites: overwrites
+      });
+
+      data.tickets[channel.id] = { opener: interaction.user.id, claimedBy: null, addedUsers: [] };
+      saveData();
+
+      const buttonsRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('transfer_ticket').setLabel('Transfer').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('add_ticket').setLabel('Add').setStyle(ButtonStyle.Primary)
+      );
+
+      await channel.send({
+        content: `**Welcome ${interaction.user}!**\n\n**Trade information provided:**\n${userInfo}\n\nPlease wait for a middleman to claim the ticket. Do **not** trade until claimed and verified.`,
+        components: [buttonsRow]
+      });
+
+      await updateTicketPerms(channel, data.tickets[channel.id], setup);
+
+      await interaction.editReply(`Ticket created → ${channel}\nVerification link sent via DM (if possible).`);
+    } catch (err) {
+      console.error('Ticket creation failed:', err.message);
+      await interaction.editReply('Failed to create ticket. Contact staff.');
+    }
+  }
+});
+
+client.login(process.env.TOKEN);
