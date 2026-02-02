@@ -14,6 +14,7 @@ const {
 const fs = require('fs');
 
 const config = require('./config.json');
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -414,7 +415,7 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // Ticket commands (add more as needed)
+  // Ticket commands
   const ticket = data.tickets[message.channel.id];
   if (ticket) {
     const isMM = message.member.roles.cache.has(setup.middlemanRole);
@@ -438,56 +439,6 @@ client.on('messageCreate', async message => {
       const msgs = await message.channel.messages.fetch({ limit: 100 });
       const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[Media]'}`).join('\n');
       const chan = message.guild.channels.cache.get(setup.transcriptsChannel);
-      if (chan) await chan.send(`**Transcript: ${message.channel.name}**\n\`\`\`\n${transcript.slice(0, 1900)}\n\`\`\``);
-      await message.reply('Closing ticket...');
-      await message.channel.delete();
-    }
-  }
-});
+      if (chan) await chan.send(`
 
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isButton()) return;
-
-  const setup = data.guilds[interaction.guild.id]?.setup || {};
-
-  if (interaction.customId === 'join_hitter') {
-    const member = interaction.member;
-    if (!member.roles.cache.has(setup.hitterRole) && setup.hitterRole) {
-      await member.roles.add(setup.hitterRole);
-    }
-
-    const welcomeChan = interaction.guild.channels.cache.get(setup.welcomeHitterChannel);
-    if (welcomeChan) {
-      await welcomeChan.send(
-        `**${interaction.user} has became a hitter**, please make sure he feels welcomed and make sure you have fun.\n\n` +
-        `**Guide**\n` +
-        `**How to hit** | go to a trading server, find a trade then convince them to use our middleman service, after that the middleman will help you scam.\n` +
-        `After all accomplished the middleman will split 50/50.\n\n` +
-        `**How to alt hit.**\n` +
-        `you need 2 devices or 2 different discords,\n` +
-        `you have to act like a normal trader in a different account, make sure its the one without middleman role, then convince them to use our middleman service and scam them all alone and also you get 100%`
-      );
-    }
-
-    await interaction.reply({ content: 'Joined! Check welcome channel.', ephemeral: true });
-  }
-
-  if (interaction.customId === 'not_interested_hitter') {
-    await interaction.channel.send(
-      `**${interaction.user} was not interested**, we will be kicking you in 1 hour.\n` +
-      `If you change your mind, click **Join Us**!`
-    );
-  }
-
-  if (interaction.customId === 'understood_mm') {
-    await interaction.channel.send(`**${interaction.user} Got it!** You're ready to use the middleman service.`);
-  }
-
-  if (interaction.customId === 'didnt_understand_mm') {
-    await interaction.channel.send(`**${interaction.user}** No worries! Ask staff or read guide.`);
-  }
-
-  // Ticket buttons (add your claim/unclaim logic here if needed)
-});
-
-client.login(process.env.TOKEN);
+      client.login(process.env.TOKEN);
