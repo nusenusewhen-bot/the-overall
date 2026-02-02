@@ -102,7 +102,6 @@ client.on('messageCreate', async message => {
   const setup = data.guilds[guildId].setup;
   const userMode = data.userModes[userId];
 
-  // AFK auto-remove
   if (data.afk[userId]) {
     delete data.afk[userId];
     saveData();
@@ -115,7 +114,6 @@ client.on('messageCreate', async message => {
     }
   }
 
-  // Block AFK pings
   const mentions = message.mentions.users;
   if (mentions.size > 0) {
     for (const [afkId, afkData] of Object.entries(data.afk)) {
@@ -132,7 +130,6 @@ client.on('messageCreate', async message => {
   }
 
   if (!message.content.startsWith(config.prefix)) {
-    // Mode choice after redeem (plain text reply)
     if (userMode && userMode.mode === null) {
       const content = message.content.trim().toLowerCase();
       if (content === '1' || content === 'ticket') {
@@ -152,7 +149,6 @@ client.on('messageCreate', async message => {
   const args = message.content.slice(config.prefix.length).trim().split(/ +/);
   const cmd = args.shift()?.toLowerCase();
 
-  // $help
   if (cmd === 'help') {
     const isMiddle = isMiddlemanUser(userId);
     const isTicket = isTicketUser(userId);
@@ -201,7 +197,6 @@ client.on('messageCreate', async message => {
     return message.channel.send({ embeds: [embed] });
   }
 
-  // Redeem
   if (cmd === 'redeem') {
     if (!args[0]) return message.reply('Usage: $redeem <key>');
     const key = args[0];
@@ -228,7 +223,6 @@ client.on('messageCreate', async message => {
     }
   }
 
-  // Mode choice
   if (userMode && userMode.mode === null) {
     const content = message.content.trim().toLowerCase();
     if (content === '1' || content === 'ticket') {
@@ -243,7 +237,6 @@ client.on('messageCreate', async message => {
     }
   }
 
-  // Shazam setup
   if (cmd === 'shazam') {
     if (!userMode || userMode.mode === null) return message.reply('Redeem & choose mode first.');
     await message.reply('Setup started. Answer each question. Type "cancel" to stop.');
@@ -285,7 +278,6 @@ client.on('messageCreate', async message => {
     return message.channel.send('**Setup complete!** Use $ticket1 or $schior.');
   }
 
-  // Ticket panel
   if (cmd === 'ticket1') {
     if (!isTicketUser(userId)) return message.reply('Ticket mode required.');
     const embed = new EmbedBuilder()
@@ -305,4 +297,70 @@ client.on('messageCreate', async message => {
 • Follow discord Terms of service and server guidelines`
       )
       .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
-      .setFooter({ text: 'Safe Trading
+      .setFooter({ text: 'Safe Trading Server' });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('request_ticket')
+        .setLabel('Request')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('📩')
+    );
+
+    await message.channel.send({ embeds: [embed], components: [row] });
+  }
+
+  const ticket = data.tickets[message.channel.id];
+  if (ticket) {
+    const isMM = message.member.roles.cache.has(setup.middlemanRole);
+    const isClaimed = message.author.id === ticket.claimedBy;
+    const isCo = message.member.roles.cache.has(setup.coOwnerRole);
+    const canManage = isMM || isClaimed || isCo;
+
+    if (['mmfee', 'confirm', 'vouch', 'schior'].includes(cmd) && !isMiddlemanUser(userId)) {
+      return message.reply('Middleman mode required.');
+    }
+
+    if (cmd === 'add') {
+      if (!canManage) return message.reply('Only middlemen/co-owners can add.');
+      const target = message.mentions.users.first() || client.users.cache.get(args[0]);
+      if (!target) return message.reply('Usage: $add @user or ID');
+      if (ticket.addedUsers.includes(target.id)) return message.reply('Already added.');
+      ticket.addedUsers.push(target.id);
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      return message.reply(`Added ${target}.`);
+    }
+
+    if (cmd === 'transfer') {
+      if (!canManage) return message.reply('Only middlemen/co-owners can transfer.');
+      const target = message.mentions.users.first() || client.users.cache.get(args[0]);
+      if (!target) return message.reply('Usage: $transfer @user or ID');
+      if (!message.guild.members.cache.get(target.id)?.roles.cache.has(setup.middlemanRole)) return message.reply('Target must have middleman role.');
+      ticket.claimedBy = target.id;
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      return message.reply(`Transferred to ${target}.`);
+    }
+
+    if (cmd === 'close') {
+      if (!isClaimed && !isCo) return message.reply('Only claimed middleman or co-owner can close.');
+      const msgs = await message.channel.messages.fetch({ limit: 100 });
+      const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[Media]'}`).join('\n');
+      const chan = message.guild.channels.cache.get(setup.transcriptsChannel);
+      if (chan) await chan.send(`**Transcript: ${message.channel.name}**\n\`\`\`\n${transcript.slice(0, 1900)}\n\`\`\``);
+      await message.reply('Closing ticket...');
+      await message.channel.delete();
+    }
+
+    if (cmd === 'claim') {
+      if (!isMM) return message.reply('Only middlemen can claim.');
+      if (ticket.claimedBy) return message.reply('Already claimed.');
+      ticket.claimedBy = message.author.id;
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      return message.channel.send(`**${message.author} has claimed ticket**`);
+    }
+
+    if (cmd === 'unclaim') {
+      if (!isMM &&
