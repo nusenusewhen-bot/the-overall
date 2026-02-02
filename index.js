@@ -1,16 +1,4 @@
-const {
-  Client,
-  GatewayIntentBits,
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ChannelType,
-  PermissionsBitField,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle
-} = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionsBitField, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const fs = require('fs');
 
 const config = require('./config.json');
@@ -24,14 +12,7 @@ const client = new Client({
 });
 
 const DATA_FILE = './data.json';
-let data = {
-  usedKeys: [],
-  userModes: {},
-  guilds: {},
-  tickets: {},
-  vouches: {},
-  afk: {}
-};
+let data = { usedKeys: [], userModes: {}, guilds: {}, tickets: {}, vouches: {}, afk: {} };
 
 if (fs.existsSync(DATA_FILE)) {
   try {
@@ -120,11 +101,7 @@ client.on('messageCreate', async message => {
       if (mentions.has(afkId)) {
         await message.delete().catch(() => {});
         const time = Math.round((Date.now() - afkData.afkSince) / 60000);
-        return message.channel.send(
-          `**${client.users.cache.get(afkId)?.tag || 'User'} is AFK**\n` +
-          `**Reason:** ${afkData.reason}\n` +
-          `**Since:** ${time} minutes ago\n(Ping deleted)`
-        );
+        return message.channel.send(`**${client.users.cache.get(afkId)?.tag || 'User'} is AFK**\n**Reason:** ${afkData.reason}\n**Since:** ${time} minutes ago\n(Ping deleted)`);
       }
     }
   }
@@ -210,14 +187,7 @@ client.on('messageCreate', async message => {
     message.reply(`**${type} key activated!**\nReply with **1** (Ticket) or **2** (Middleman)`);
 
     try {
-      await message.author.send(
-        `**You have redeemed a ${type} key!**\n\n` +
-        `**Tutorial:**\n` +
-        `1. Go to a channel for tickets/category.\n` +
-        `2. Type **$shazam** and answer questions.\n` +
-        `3. Use **$ticket1** (ticket mode) or **$schior** (middleman mode).\n\n` +
-        `Good luck!`
-      );
+      await message.author.send(`**You have redeemed a ${type} key!**\n\n**Tutorial:**\n1. Go to a channel for tickets/category.\n2. Type **$shazam** and answer questions.\n3. Use **$ticket1** (ticket mode) or **$schior** (middleman mode).\n\nGood luck!`);
     } catch {
       message.reply('DM failed (closed?). Check reply above.');
     }
@@ -241,8 +211,7 @@ client.on('messageCreate', async message => {
     if (!userMode || userMode.mode === null) return message.reply('Redeem & choose mode first.');
     await message.reply('Setup started. Answer each question. Type "cancel" to stop.');
 
-    let ans;
-    ans = await askQuestion(message.channel, userId, 'Ticket transcripts channel ID:');
+    let ans = await askQuestion(message.channel, userId, 'Ticket transcripts channel ID:');
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
     setup.transcriptsChannel = ans;
 
@@ -262,105 +231,4 @@ client.on('messageCreate', async message => {
         setup.verificationLink = ans;
         valid = true;
       } else {
-        await message.channel.send('Must start with https://. Try again.');
-      }
-    }
-
-    ans = await askQuestion(message.channel, userId, 'Guide channel ID:');
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
-    setup.guideChannel = ans;
-
-    ans = await askQuestion(message.channel, userId, 'Co-owner role ID:');
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
-    setup.coOwnerRole = ans;
-
-    saveData();
-    return message.channel.send('**Setup complete!** Use $ticket1 or $schior.');
-  }
-
-  if (cmd === 'ticket1') {
-    if (!isTicketUser(userId)) return message.reply('Ticket mode required.');
-    const embed = new EmbedBuilder()
-      .setColor(0x0088ff)
-      .setDescription(
-        `Found a trade and would like to ensure a safe trading experience?
-
-**Open a ticket below**
-
-**What we provide**
-• We provide safe traders between 2 parties
-• We provide fast and easy deals
-
-**Important notes**
-• Both parties must agree before opening a ticket
-• Fake/Troll tickets will result into a ban or ticket blacklist
-• Follow discord Terms of service and server guidelines`
-      )
-      .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
-      .setFooter({ text: 'Safe Trading Server' });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('request_ticket')
-        .setLabel('Request')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('📩')
-    );
-
-    await message.channel.send({ embeds: [embed], components: [row] });
-  }
-
-  const ticket = data.tickets[message.channel.id];
-  if (ticket) {
-    const isMM = message.member.roles.cache.has(setup.middlemanRole);
-    const isClaimed = message.author.id === ticket.claimedBy;
-    const isCo = message.member.roles.cache.has(setup.coOwnerRole);
-    const canManage = isMM || isClaimed || isCo;
-
-    if (['mmfee', 'confirm', 'vouch', 'schior'].includes(cmd) && !isMiddlemanUser(userId)) {
-      return message.reply('Middleman mode required.');
-    }
-
-    if (cmd === 'add') {
-      if (!canManage) return message.reply('Only middlemen/co-owners can add.');
-      const target = message.mentions.users.first() || client.users.cache.get(args[0]);
-      if (!target) return message.reply('Usage: $add @user or ID');
-      if (ticket.addedUsers.includes(target.id)) return message.reply('Already added.');
-      ticket.addedUsers.push(target.id);
-      saveData();
-      await updateTicketPerms(message.channel, ticket, setup);
-      return message.reply(`Added ${target}.`);
-    }
-
-    if (cmd === 'transfer') {
-      if (!canManage) return message.reply('Only middlemen/co-owners can transfer.');
-      const target = message.mentions.users.first() || client.users.cache.get(args[0]);
-      if (!target) return message.reply('Usage: $transfer @user or ID');
-      if (!message.guild.members.cache.get(target.id)?.roles.cache.has(setup.middlemanRole)) return message.reply('Target must have middleman role.');
-      ticket.claimedBy = target.id;
-      saveData();
-      await updateTicketPerms(message.channel, ticket, setup);
-      return message.reply(`Transferred to ${target}.`);
-    }
-
-    if (cmd === 'close') {
-      if (!isClaimed && !isCo) return message.reply('Only claimed middleman or co-owner can close.');
-      const msgs = await message.channel.messages.fetch({ limit: 100 });
-      const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[Media]'}`).join('\n');
-      const chan = message.guild.channels.cache.get(setup.transcriptsChannel);
-      if (chan) await chan.send(`**Transcript: ${message.channel.name}**\n\`\`\`\n${transcript.slice(0, 1900)}\n\`\`\``);
-      await message.reply('Closing ticket...');
-      await message.channel.delete();
-    }
-
-    if (cmd === 'claim') {
-      if (!isMM) return message.reply('Only middlemen can claim.');
-      if (ticket.claimedBy) return message.reply('Already claimed.');
-      ticket.claimedBy = message.author.id;
-      saveData();
-      await updateTicketPerms(message.channel, ticket, setup);
-      return message.channel.send(`**${message.author} has claimed ticket**`);
-    }
-
-    if (cmd === 'unclaim') {
-      if (!isMM &&
+        await message.channel.send('Must
