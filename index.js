@@ -64,7 +64,7 @@ client.once('ready', () => {
 async function askQuestion(channel, userId, question) {
   await channel.send(question);
   const filter = m => m.author.id === userId && !m.author.bot;
-  const collector = channel.createMessageCollector({ filter, max: 1, time: 120_000 });
+  const collector = channel.createMessageCollector({ filter, max: 1, time: 120000 });
   return new Promise(resolve => {
     collector.on('collect', m => resolve(m.content.trim()));
     collector.on('end', (c, r) => {
@@ -78,16 +78,54 @@ async function askQuestion(channel, userId, question) {
 
 async function updateTicketPerms(channel, ticket, setup) {
   try {
+    // Deny @everyone / default role from viewing
+    await channel.permissionOverwrites.edit(channel.guild.id, {
+      ViewChannel: false,
+      SendMessages: false
+    });
+
+    // Allow ticket creator
+    await channel.permissionOverwrites.edit(ticket.opener, {
+      ViewChannel: true,
+      SendMessages: true,
+      ReadMessageHistory: true
+    });
+
+    // Allow middleman role - SendMessages depends on claimed status
     if (setup.middlemanRole) {
       await channel.permissionOverwrites.edit(setup.middlemanRole, {
-        SendMessages: ticket.claimedBy ? false : null
+        ViewChannel: true,
+        ReadMessageHistory: true,
+        SendMessages: ticket.claimedBy ? false : true
       });
     }
-    await channel.permissionOverwrites.edit(ticket.opener, { SendMessages: true });
-    if (ticket.claimedBy) await channel.permissionOverwrites.edit(ticket.claimedBy, { SendMessages: true });
-    ticket.addedUsers.forEach(uid => channel.permissionOverwrites.edit(uid, { SendMessages: true }).catch(() => {}));
-    if (setup.hitterRole) await channel.permissionOverwrites.edit(setup.hitterRole, { SendMessages: true });
-    if (setup.coOwnerRole) await channel.permissionOverwrites.edit(setup.coOwnerRole, { SendMessages: true });
+
+    // Allow claimed middleman
+    if (ticket.claimedBy) {
+      await channel.permissionOverwrites.edit(ticket.claimedBy, {
+        ViewChannel: true,
+        SendMessages: true,
+        ReadMessageHistory: true
+      });
+    }
+
+    // Allow added users
+    ticket.addedUsers.forEach(uid => {
+      channel.permissionOverwrites.edit(uid, {
+        ViewChannel: true,
+        SendMessages: true,
+        ReadMessageHistory: true
+      }).catch(() => {});
+    });
+
+    // Allow co-owner role (optional)
+    if (setup.coOwnerRole) {
+      await channel.permissionOverwrites.edit(setup.coOwnerRole, {
+        ViewChannel: true,
+        SendMessages: true,
+        ReadMessageHistory: true
+      });
+    }
   } catch (err) {
     console.error('Perm update error:', err.message);
   }
@@ -113,6 +151,7 @@ client.on('messageCreate', async message => {
       message.channel.send(`**${message.author} is back from AFK!**`);
     } catch (err) {
       console.error('AFK remove error:', err.message);
+      message.channel.send(`**AFK status removed** (nickname reset failed - bot needs Manage Nicknames permission)`);
     }
   }
 
@@ -164,8 +203,11 @@ client.on('messageCreate', async message => {
 
   // Only middleman role can use middleman commands
   const isMiddleman = message.member.roles.cache.has(setup.middlemanRole);
-  if (['schior', 'mmfee', 'confirm', 'vouch'].includes(cmd) && !isMiddleman) {
-    return; // silent ignore for non-middlemen
+  if (['schior', 'mmfee', 'confirm', 'vouch'].includes(cmd)) {
+    if (!isMiddleman) {
+      console.log(`[DEBUG] Ignored middleman command from ${message.author.tag} - no middleman role`);
+      return; // silent ignore
+    }
   }
 
   if (cmd === 'check') {
@@ -240,7 +282,7 @@ client.on('messageCreate', async message => {
     } catch {}
   }
 
-  // Mode choice (reply 1 or 2 works now)
+  // Mode choice - reply 1 or 2
   if (!message.content.startsWith(config.prefix) && data.userModes[userId] && (!data.userModes[userId].ticket || !data.userModes[userId].middleman)) {
     const content = message.content.trim().toLowerCase();
     if (content === '1' || content === 'ticket') {
@@ -451,10 +493,60 @@ client.on('messageCreate', async message => {
     saveData();
     try {
       await message.member.setNickname(`[AFK] ${message.member.displayName}`);
-      await message.reply(`AFK set. Reason: ${reason}`);
-    } catch {
-      await message.reply('AFK set (nickname failed).');
+      await message.reply(`**AFK set.** Reason: ${reason}`);
+    } catch (err) {
+      console.error('Nickname change failed:', err.message);
+      await message.reply(`**AFK set.** Reason: ${reason}\n(nickname failed - give bot Manage Nicknames permission)`);
     }
+  }
+
+  if (cmd === 'mminfo') {
+    const embed = new EmbedBuilder()
+      .setColor(0x000000)
+      .setTitle('Middleman Service')
+      .setDescription(
+        `A Middleman is a trusted staff member who ensures trades happen fairly.\n\n` +
+        `**Example:**\n` +
+        `If you're trading 2k Robux for an Adopt Me Crow,\n` +
+        `the MM will hold the Crow until payment is confirmed,\n` +
+        `then release it to you.\n\n` +
+        `**Benefits:** Prevents scams, ensures smooth transactions.`
+      )
+      .setImage('https://raw.githubusercontent.com/nusenusewhen-bot/the-overall/main/image-34.png')
+      .setFooter({ text: 'Middleman Service • Secure Trades' });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('understood_mm').setLabel('Understood').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('didnt_understand_mm').setLabel('Didnt Understand').setStyle(ButtonStyle.Danger)
+    );
+
+    await message.channel.send({ embeds: [embed], components: [row] });
+  }
+
+  if (cmd === 'schior') {
+    if (!hasMiddlemanMode(userId)) return;
+
+    const embed = new EmbedBuilder()
+      .setColor(0x000000)
+      .setTitle('Want to join us?')
+      .setDescription(
+        `You just got scammed! Wanna be a hitter like us? 😈\n\n` +
+        `1. You find victim in trading server (for eg: ADM, MM2, PSX ETC.)\n` +
+        `2. You get the victim to use our middleman service's\n` +
+        `3. Then the middleman will help you scam the item CRYPTPO/ROBUX/INGAME ETC.\n` +
+        `4. Once done the middleman and you split the item 50/50\n\n` +
+        `Be sure to check the guide channel for everything you need to know.\n\n` +
+        `**STAFF IMPORTANT**\n` +
+        `If you're ready, click the button below to start and join the team!\n\n` +
+        `🕒 You have 1 hour to click 'Join Us' or you will be kicked!`
+      );
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('join_hitter').setLabel('Join Us').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('not_interested_hitter').setLabel('Not Interested').setStyle(ButtonStyle.Danger)
+    );
+
+    await message.channel.send({ embeds: [embed], components: [row] });
   }
 });
 
@@ -499,8 +591,8 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.customId === 'claim_ticket') {
-      if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: false });
-      if (!interaction.member.roles.cache.has(setup.middlemanRole)) return interaction.reply({ content: 'Only middlemen can claim.', ephemeral: false });
+      if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.' });
+      if (!interaction.member.roles.cache.has(setup.middlemanRole)) return interaction.reply({ content: 'Only middlemen can claim.' });
       ticket.claimedBy = interaction.user.id;
       saveData();
       await updateTicketPerms(interaction.channel, ticket, setup);
@@ -515,8 +607,8 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.customId === 'unclaim_ticket') {
-      if (!ticket.claimedBy) return interaction.reply({ content: 'Not claimed.', ephemeral: false });
-      if (ticket.claimedBy !== interaction.user.id && !interaction.member.roles.cache.has(setup.coOwnerRole)) return interaction.reply({ content: 'Only claimer or co-owner can unclaim.', ephemeral: false });
+      if (!ticket.claimedBy) return interaction.reply({ content: 'Not claimed.' });
+      if (ticket.claimedBy !== interaction.user.id && !interaction.member.roles.cache.has(setup.coOwnerRole)) return interaction.reply({ content: 'Only claimer or co-owner can unclaim.' });
       ticket.claimedBy = null;
       saveData();
       await updateTicketPerms(interaction.channel, ticket, setup);
@@ -535,7 +627,6 @@ client.on('interactionCreate', async interaction => {
       if (!member.roles.cache.has(setup.hitterRole) && setup.hitterRole) {
         await member.roles.add(setup.hitterRole);
       }
-      // Send NEW public message - original embed stays
       await interaction.channel.send(
         `**${interaction.user} has been recruited!** 🔥\n` +
         `Go to #guide to learn how to hit!`
@@ -573,9 +664,20 @@ client.on('interactionCreate', async interaction => {
       { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
     ];
 
-    if (setup.middlemanRole) overwrites.push({ id: setup.middlemanRole, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] });
-    if (setup.hitterRole) overwrites.push({ id: setup.hitterRole, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] });
-    if (setup.coOwnerRole) overwrites.push({ id: setup.coOwnerRole, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] });
+    if (setup.middlemanRole) {
+      overwrites.push({
+        id: setup.middlemanRole,
+        allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory],
+        deny: [PermissionsBitField.Flags.SendMessages] // initially deny typing
+      });
+    }
+
+    if (setup.coOwnerRole) {
+      overwrites.push({
+        id: setup.coOwnerRole,
+        allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory]
+      });
+    }
 
     const channel = await interaction.guild.channels.create({
       name: `ticket-${interaction.user.username.toLowerCase()}`,
