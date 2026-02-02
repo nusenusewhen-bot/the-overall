@@ -1,6 +1,6 @@
 {
   "prefix": "$",
-  "ownerId": "1298640383688970293"
+  "ownerId": "1298640383688970293",
   "validKeys": {
     "Bh0#H3": "lifetime",
     "BdjOU0": "lifetime",
@@ -61,6 +61,10 @@
     "ETERNALGOD": "lifetime",
     "BOTLIFEX": "lifetime",
     "KEYMASTERX2": "lifetime",
-    "INFINITEVIP": "lifetime"
+    "INFINITEVIP": "lifetime",
+    "LIFETIME2028": "lifetime",
+    "PERMKEYX": "lifetime",
+    "NEVEREND": "lifetime",
+    "KEYFOREVERX": "lifetime"
   }
 }
