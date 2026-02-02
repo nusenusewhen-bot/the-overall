@@ -1,15 +1,15 @@
-const {
-  Client,
-  GatewayIntentBits,
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  PermissionsBitField
+const { 
+  Client, 
+  GatewayIntentBits, 
+  EmbedBuilder, 
+  ActionRowBuilder, 
+  ButtonBuilder, 
+  ButtonStyle, 
+  PermissionsBitField 
 } = require('discord.js');
 const fs = require('fs');
-
 const config = require('./config.json');
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -31,7 +31,6 @@ let data = {
   afk: {}
 };
 
-// Load data
 if (fs.existsSync(DATA_FILE)) {
   try {
     const raw = fs.readFileSync(DATA_FILE, 'utf8');
@@ -50,7 +49,6 @@ if (fs.existsSync(DATA_FILE)) {
   }
 }
 
-// Save function
 function saveData() {
   try {
     const serial = { ...data, redeemedUsers: Array.from(data.redeemedUsers) };
@@ -61,7 +59,6 @@ function saveData() {
   }
 }
 
-// Helpers
 function hasTicketMode(userId) { return data.userModes[userId]?.ticket === true; }
 function hasMiddlemanMode(userId) { return data.userModes[userId]?.middleman === true; }
 function isRedeemed(userId) { return data.redeemedUsers.has(userId); }
@@ -135,12 +132,10 @@ async function updateTicketPerms(channel, ticket, setup) {
   }
 }
 
-// Ready
 client.once('ready', () => {
   console.log(`[READY] ${client.user.tag} online`);
 });
 
-// Messages
 client.on('messageCreate', async message => {
   if (message.author.bot || !message.guild) return;
 
@@ -179,7 +174,7 @@ client.on('messageCreate', async message => {
     }
   }
 
-  // Redeem reply - only redeemer
+  // Redeem reply
   if (!message.content.startsWith(config.prefix) && data.redeemPending[userId]) {
     const content = message.content.trim().toLowerCase();
 
@@ -195,7 +190,7 @@ client.on('messageCreate', async message => {
       delete data.redeemPending[userId];
       saveData();
       message.reply('**Middleman mode activated!** Use $schior.');
-      // Setup roles etc.
+      // Setup middleman role, hitter role, welcome channel
       const roleId = await askQuestion(message.channel, userId, 'Middleman role ID (numbers only):', ans => /^\d+$/.test(ans));
       if (roleId) setup.middlemanRole = roleId;
       const hitterId = await askQuestion(message.channel, userId, 'Hitter role ID (numbers only):', ans => /^\d+$/.test(ans));
@@ -226,38 +221,42 @@ client.on('messageCreate', async message => {
     data.redeemedUsers.add(userId);
     data.redeemPending[userId] = true;
     saveData();
+
     message.reply(`**${type} key activated!** Reply **1** (Ticket) or **2** (Middleman)`);
-    try { await message.author.send(`**Redeemed ${type}!** Reply **1** or **2** in channel.`); } catch {}
     return;
   }
 
   // Shazam setup
   if (cmd === 'shazam') {
-    if (!isRedeemed(userId) || !hasTicketMode(userId)) return;
+    if (!isRedeemed(userId)) return;
+    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
     await message.reply('**Setup started.** Answer questions. "cancel" to stop.');
+
     let ans;
-    ans = await askQuestion(message.channel, userId, 'Transcripts channel ID (numbers):', a => /^\d+$/.test(a));
+    ans = await askQuestion(message.channel, userId, 'Transcripts channel ID:');
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.transcriptsChannel = ans;
-    ans = await askQuestion(message.channel, userId, 'Middleman role ID (numbers):', a => /^\d+$/.test(a));
+
+    ans = await askQuestion(message.channel, userId, 'Middleman role ID:');
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.middlemanRole = ans;
-    ans = await askQuestion(message.channel, userId, 'Hitter role ID (numbers):', a => /^\d+$/.test(a));
+
+    ans = await askQuestion(message.channel, userId, 'Hitter role ID:');
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.hitterRole = ans;
-    // Verification link
-    while (true) {
-      ans = await askQuestion(message.channel, userId, 'Verification link (https://...)');
-      if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
-      if (ans.startsWith('https://')) { setup.verificationLink = ans; break; }
-      await message.channel.send('Must start with https://.');
-    }
-    ans = await askQuestion(message.channel, userId, 'Guide channel ID (numbers):', a => /^\d+$/.test(a));
+
+    ans = await askQuestion(message.channel, userId, 'Verification link (https://...):');
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
+    setup.verificationLink = ans;
+
+    ans = await askQuestion(message.channel, userId, 'Guide channel ID:');
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.guideChannel = ans;
-    ans = await askQuestion(message.channel, userId, 'Co-owner role ID (numbers):', a => /^\d+$/.test(a));
+
+    ans = await askQuestion(message.channel, userId, 'Co-owner role ID:');
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.coOwnerRole = ans;
+
     saveData();
     message.channel.send('**Setup complete!** Use $ticket1.');
   }
@@ -268,21 +267,8 @@ client.on('messageCreate', async message => {
     const embed = new EmbedBuilder()
       .setColor(0x0088ff)
       .setDescription(
-        `Found a trade and would like to ensure a safe trading experience?
-
-**Open a ticket below**
-
-**What we provide**
-• We provide safe traders between 2 parties
-• We provide fast and easy deals
-
-**Important notes**
-• Both parties must agree before opening a ticket
-• Fake/Troll tickets will result into a ban or ticket blacklist
-• Follow discord Terms of service and server guidelines`
-      )
-      .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
-      .setFooter({ text: 'Safe Trading Server' });
+        `Found a trade and would like to ensure a safe trading experience?\n\n**Open a ticket below**\n\n**What we provide**\n• Safe trades\n• Fast deals\n\n**Important**\n• Both parties must agree\n• Fake tickets banned`
+      );
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -296,7 +282,7 @@ client.on('messageCreate', async message => {
   }
 });
 
-// Interactions
+// Interaction handler (tickets + middleman)
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
   const setup = data.guilds[interaction.guild.id]?.setup || {};
@@ -305,20 +291,34 @@ client.on('interactionCreate', async interaction => {
   if (interaction.customId === 'request_ticket') {
     await interaction.deferReply({ ephemeral: true });
     try {
+      if (!interaction.guild.members.me.permissions.has([
+        PermissionsBitField.Flags.ManageChannels,
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory
+      ])) return await interaction.editReply({ content: '❌ I do not have permission to create channels.' });
+
       const ticketChannel = await interaction.guild.channels.create({
-        name: `ticket-${interaction.user.username}`,
+        name: `ticket-${interaction.user.username}`.toLowerCase().replace(/[^a-z0-9-]/g, ''),
         type: 0,
+        parent: setup.ticketCategory || null,
         permissionOverwrites: [
           { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-          { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
-        ]
+          { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
+          setup.middlemanRole ? { id: setup.middlemanRole, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] } : {}
+        ].filter(Boolean)
       });
+
       data.tickets[ticketChannel.id] = { opener: interaction.user.id, claimedBy: null, addedUsers: [] };
       saveData();
       await interaction.editReply({ content: `✅ Ticket created: ${ticketChannel}` });
+
+      const embed = new EmbedBuilder().setColor(0x00ff88).setTitle('Ticket Created').setDescription(`Hello ${interaction.user}, a staff member will assist you shortly.`);
+      await ticketChannel.send({ content: `<@${interaction.user.id}>`, embeds: [embed] });
+
     } catch (err) {
       console.error(err);
-      await interaction.editReply({ content: '❌ Failed to create ticket.' });
+      await interaction.editReply({ content: '❌ Failed to create ticket. Check bot permissions.' });
     }
     return;
   }
@@ -328,23 +328,13 @@ client.on('interactionCreate', async interaction => {
     const member = interaction.member;
     if (!member.roles.cache.has(setup.hitterRole) && setup.hitterRole) await member.roles.add(setup.hitterRole);
     const welcomeChan = interaction.guild.channels.cache.get(setup.welcomeHitterChannel);
-    if (welcomeChan) {
-      await welcomeChan.send(`**${interaction.user} has became a hitter**, welcome!`);
-    }
+    if (welcomeChan) await welcomeChan.send(`**${interaction.user} has became a hitter**, welcome!`);
     await interaction.reply({ content: 'Joined! Check welcome channel.', ephemeral: true });
   }
 
-  if (interaction.customId === 'not_interested_hitter') {
-    await interaction.channel.send(`**${interaction.user} was not interested**, click Join Us if you change your mind.`);
-  }
-
-  if (interaction.customId === 'understood_mm') {
-    await interaction.channel.send(`**${interaction.user} Got it!** You're ready to use the middleman service.`);
-  }
-
-  if (interaction.customId === 'didnt_understand_mm') {
-    await interaction.channel.send(`**${interaction.user}** No worries! Ask staff or read guide.`);
-  }
+  if (interaction.customId === 'not_interested_hitter') await interaction.channel.send(`**${interaction.user} was not interested**, click Join Us if you change your mind.`);
+  if (interaction.customId === 'understood_mm') await interaction.channel.send(`**${interaction.user} Got it!** Ready to use the middleman service.`);
+  if (interaction.customId === 'didnt_understand_mm') await interaction.channel.send(`**${interaction.user}** No worries! Ask staff or read guide.`);
 });
 
 client.login(process.env.TOKEN);
