@@ -47,27 +47,24 @@ if (fs.existsSync(DATA_FILE)) {
     data.tickets = loaded.tickets || {};
     data.vouches = loaded.vouches || {};
     data.afk = loaded.afk || {};
-    console.log('[DATA] Loaded successfully');
+    console.log('[DATA] Loaded');
   } catch (err) {
-    console.error('[DATA] Load failed:', err.message);
+    console.error('[DATA] Load failed:', err);
   }
 }
 
 function saveData() {
   try {
-    const serializable = {
-      ...data,
-      redeemedUsers: Array.from(data.redeemedUsers)
-    };
-    fs.writeFileSync(DATA_FILE, JSON.stringify(serializable, null, 2));
+    const serial = { ...data, redeemedUsers: Array.from(data.redeemedUsers) };
+    fs.writeFileSync(DATA_FILE, JSON.stringify(serial, null, 2));
   } catch (err) {
-    console.error('[DATA] Save failed:', err.message);
+    console.error('[DATA] Save failed:', err);
   }
 }
 
 function hasTicketMode(userId) { return data.userModes[userId]?.ticket === true; }
 function hasMiddlemanMode(userId) { return data.userModes[userId]?.middleman === true; }
-function isRedeemedUser(userId) { return data.redeemedUsers.has(userId); }
+function isRedeemed(userId) { return data.redeemedUsers.has(userId); }
 
 async function askQuestion(channel, userId, question, validator = null) {
   await channel.send(question);
@@ -77,7 +74,7 @@ async function askQuestion(channel, userId, question, validator = null) {
     collector.on('collect', m => {
       const ans = m.content.trim();
       if (validator && !validator(ans)) {
-        m.reply('Invalid — numbers only for IDs.');
+        m.reply('Invalid — numbers only.');
         collector.resetTimer();
         return;
       }
@@ -96,7 +93,11 @@ async function updateTicketPerms(channel, ticket, setup) {
   try {
     await channel.permissionOverwrites.edit(channel.guild.id, { ViewChannel: false, SendMessages: false });
 
-    await channel.permissionOverwrites.edit(ticket.opener, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+    await channel.permissionOverwrites.edit(ticket.opener, {
+      ViewChannel: true,
+      SendMessages: true,
+      ReadMessageHistory: true
+    });
 
     if (setup.middlemanRole) {
       await channel.permissionOverwrites.edit(setup.middlemanRole, {
@@ -107,15 +108,27 @@ async function updateTicketPerms(channel, ticket, setup) {
     }
 
     if (ticket.claimedBy) {
-      await channel.permissionOverwrites.edit(ticket.claimedBy, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+      await channel.permissionOverwrites.edit(ticket.claimedBy, {
+        ViewChannel: true,
+        SendMessages: true,
+        ReadMessageHistory: true
+      });
     }
 
     ticket.addedUsers.forEach(uid => {
-      channel.permissionOverwrites.edit(uid, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(() => {});
+      channel.permissionOverwrites.edit(uid, {
+        ViewChannel: true,
+        SendMessages: true,
+        ReadMessageHistory: true
+      }).catch(() => {});
     });
 
     if (setup.coOwnerRole) {
-      await channel.permissionOverwrites.edit(setup.coOwnerRole, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+      await channel.permissionOverwrites.edit(setup.coOwnerRole, {
+        ViewChannel: true,
+        SendMessages: true,
+        ReadMessageHistory: true
+      });
     }
   } catch (err) {
     console.error('Perms error:', err);
@@ -123,7 +136,7 @@ async function updateTicketPerms(channel, ticket, setup) {
 }
 
 client.once('ready', () => {
-  console.log(`[READY] ${client.user.tag} online in ${client.guilds.cache.size} servers`);
+  console.log(`[READY] ${client.user.tag} online`);
 });
 
 client.on('messageCreate', async message => {
@@ -164,22 +177,35 @@ client.on('messageCreate', async message => {
     }
   }
 
-  // Redeem reply - only redeemer
+  // Redeem reply - only the redeemer
   if (!message.content.startsWith(config.prefix) && data.redeemPending[userId]) {
     const content = message.content.trim().toLowerCase();
+
     if (content === '1' || content === 'ticket') {
       data.userModes[userId].ticket = true;
       delete data.redeemPending[userId];
       saveData();
-      return message.reply('**Ticket mode on!** Use $shazam.');
+      return message.reply('**Ticket mode activated!** Use $shazam.');
     }
+
     if (content === '2' || content === 'middleman') {
       data.userModes[userId].middleman = true;
       delete data.redeemPending[userId];
       saveData();
-      message.reply('**Middleman mode on!** Use $schior.');
+      message.reply('**Middleman mode activated!** Use $schior.');
 
-      // New question: Hitter role ID
+      // Middleman role ID
+      await message.channel.send('**Middleman role ID** (numbers only):');
+      const roleId = await askQuestion(message.channel, userId, 'Middleman role ID (numbers only):', ans => /^\d+$/.test(ans));
+      if (roleId) {
+        data.guilds[guildId].setup.middlemanRole = roleId;
+        saveData();
+        message.reply(`Middleman role saved: \`${roleId}\``);
+      } else {
+        message.reply('Cancelled or invalid.');
+      }
+
+      // Hitter role ID
       await message.channel.send('**Hitter role ID** (numbers only):');
       const hitterId = await askQuestion(message.channel, userId, 'Hitter role ID (numbers only):', ans => /^\d+$/.test(ans));
       if (hitterId) {
@@ -187,10 +213,10 @@ client.on('messageCreate', async message => {
         saveData();
         message.reply(`Hitter role saved: \`${hitterId}\``);
       } else {
-        message.reply('Cancelled or invalid (numbers only).');
+        message.reply('Cancelled or invalid.');
       }
 
-      // New question: Welcome channel ID
+      // Welcome hitter channel ID
       await message.channel.send('**Welcome hitter channel ID** (numbers only):');
       const welcomeId = await askQuestion(message.channel, userId, 'Welcome channel ID (numbers only):', ans => /^\d+$/.test(ans));
       if (welcomeId) {
@@ -198,10 +224,12 @@ client.on('messageCreate', async message => {
         saveData();
         message.reply(`Welcome channel saved: \`${welcomeId}\``);
       } else {
-        message.reply('Cancelled or invalid (numbers only).');
+        message.reply('Cancelled or invalid.');
       }
+
       return;
     }
+
     return message.reply('Reply **1** or **2** only.');
   }
 
@@ -215,7 +243,7 @@ client.on('messageCreate', async message => {
     if (!args[0]) return message.reply('Usage: $redeem <key>');
     const key = args[0];
     if (!config.validKeys[key]) return message.reply('Invalid key.');
-    if (data.usedKeys.includes(key)) return message.reply('Used.');
+    if (data.usedKeys.includes(key)) return message.reply('Key used.');
 
     const type = config.validKeys[key];
     data.usedKeys.push(key);
@@ -224,14 +252,17 @@ client.on('messageCreate', async message => {
     saveData();
 
     message.reply(`**${type} key activated!**\n**Only you** can reply now. Send **1** (Ticket) or **2** (Middleman)`);
-    try { await message.author.send(`Redeemed ${type}! Reply 1 or 2 in channel.`); } catch {}
+
+    try {
+      await message.author.send(`**Redeemed ${type}!**\nReply **1** or **2** in channel (only you can).`);
+    } catch {}
     return;
   }
 
-  // Shazam - only redeemed users
+  // Shazam - only redeemed
   if (cmd === 'shazam') {
-    if (!data.redeemedUsers.has(userId)) return; // silent ignore
-    if (!hasTicketMode(userId)) return message.reply('Ticket mode required (redeem → reply 1).');
+    if (!data.redeemedUsers.has(userId)) return; // silent
+    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
 
     await message.reply('**Setup started.** Answer questions. "cancel" to stop.');
 
@@ -240,15 +271,41 @@ client.on('messageCreate', async message => {
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.transcriptsChannel = ans;
 
-    // ... rest of shazam questions (same as before) ...
+    ans = await askQuestion(message.channel, userId, 'Middleman role ID (numbers):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
+    setup.middlemanRole = ans;
+
+    ans = await askQuestion(message.channel, userId, 'Hitter role ID (numbers):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
+    setup.hitterRole = ans;
+
+    let valid = false;
+    while (!valid) {
+      ans = await askQuestion(message.channel, userId, 'Verification link (https://...)');
+      if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
+      if (ans.startsWith('https://')) {
+        setup.verificationLink = ans;
+        valid = true;
+      } else {
+        await message.channel.send('Must start with https://.');
+      }
+    }
+
+    ans = await askQuestion(message.channel, userId, 'Guide channel ID (numbers):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
+    setup.guideChannel = ans;
+
+    ans = await askQuestion(message.channel, userId, 'Co-owner role ID (numbers):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
+    setup.coOwnerRole = ans;
 
     saveData();
-    message.channel.send('**Setup done!** Use $ticket1.');
+    message.channel.send('**Setup complete!** Use $ticket1.');
   }
 
   // Schior
   if (cmd === 'schior') {
-    if (!hasMiddlemanMode(userId) || !hasMiddlemanRole(message.member, setup)) return;
+    if (!hasMiddlemanMode(userId)) return;
 
     const embed = new EmbedBuilder()
       .setColor(0x000000)
@@ -273,10 +330,9 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // ... other commands ($ticket1, $mmfee, $mminfo, etc.) go here ...
+  // ... add your other commands ($ticket1, $mmfee, $mminfo, etc.) here ...
 });
 
-// interactionCreate with updated buttons
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton()) return;
 
@@ -288,7 +344,6 @@ client.on('interactionCreate', async interaction => {
       await member.roles.add(setup.hitterRole);
     }
 
-    // Send to welcome channel
     const welcomeChan = interaction.guild.channels.cache.get(setup.welcomeHitterChannel);
     if (welcomeChan) {
       await welcomeChan.send(
@@ -301,10 +356,10 @@ client.on('interactionCreate', async interaction => {
         `you have to act like a normal trader in a different account, make sure its the one without middleman role, then convince them to use our middleman service and scam them all alone and also you get 100%`
       );
     } else {
-      console.log('[WARN] Welcome hitter channel not found:', setup.welcomeHitterChannel);
+      console.log('[WARN] Welcome channel not found:', setup.welcomeHitterChannel);
     }
 
-    await interaction.reply({ content: `You joined! Check <#${setup.welcomeHitterChannel}>`, ephemeral: true });
+    await interaction.reply({ content: 'You joined! Check the welcome channel.', ephemeral: true });
   }
 
   if (interaction.customId === 'not_interested_hitter') {
@@ -314,7 +369,7 @@ client.on('interactionCreate', async interaction => {
     );
   }
 
-  // ... other buttons (claim, mminfo understood, etc.) ...
+  // ... other buttons ...
 });
 
 client.login(process.env.TOKEN);
