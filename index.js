@@ -1,4 +1,16 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionsBitField, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ChannelType,
+  PermissionsBitField,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle
+} = require('discord.js');
 const fs = require('fs');
 
 const config = require('./config.json');
@@ -12,7 +24,14 @@ const client = new Client({
 });
 
 const DATA_FILE = './data.json';
-let data = { usedKeys: [], userModes: {}, guilds: {}, tickets: {}, vouches: {}, afk: {} };
+let data = {
+  usedKeys: [],
+  userModes: {},
+  guilds: {},
+  tickets: {},
+  vouches: {},
+  afk: {}
+};
 
 if (fs.existsSync(DATA_FILE)) {
   try {
@@ -83,6 +102,7 @@ client.on('messageCreate', async message => {
   const setup = data.guilds[guildId].setup;
   const userMode = data.userModes[userId];
 
+  // AFK auto-remove on any message
   if (data.afk[userId]) {
     delete data.afk[userId];
     saveData();
@@ -95,18 +115,24 @@ client.on('messageCreate', async message => {
     }
   }
 
+  // Block pings to AFK users
   const mentions = message.mentions.users;
   if (mentions.size > 0) {
     for (const [afkId, afkData] of Object.entries(data.afk)) {
       if (mentions.has(afkId)) {
         await message.delete().catch(() => {});
         const time = Math.round((Date.now() - afkData.afkSince) / 60000);
-        return message.channel.send(`**${client.users.cache.get(afkId)?.tag || 'User'} is AFK**\n**Reason:** ${afkData.reason}\n**Since:** ${time} minutes ago\n(Ping deleted)`);
+        return message.channel.send(
+          `**${client.users.cache.get(afkId)?.tag || 'User'} is AFK**\n` +
+          `**Reason:** ${afkData.reason}\n` +
+          `**Since:** ${time} minutes ago\n(Ping deleted)`
+        );
       }
     }
   }
 
   if (!message.content.startsWith(config.prefix)) {
+    // Mode choice after redeem (plain text reply)
     if (userMode && userMode.mode === null) {
       const content = message.content.trim().toLowerCase();
       if (content === '1' || content === 'ticket') {
@@ -126,6 +152,7 @@ client.on('messageCreate', async message => {
   const args = message.content.slice(config.prefix.length).trim().split(/ +/);
   const cmd = args.shift()?.toLowerCase();
 
+  // $help
   if (cmd === 'help') {
     const isMiddle = isMiddlemanUser(userId);
     const isTicket = isTicketUser(userId);
@@ -160,20 +187,21 @@ client.on('messageCreate', async message => {
     });
 
     embed.addFields({
-      name: '🌐 General',
+      name: '🌐 General Commands',
       value: 
         '` $redeem <key> ` → Redeem key\n' +
-        '` $help ` → This list\n' +
+        '` $help ` → This command\n' +
         '` $vouches [@user] ` → Check vouches\n' +
         '` $afk [reason] ` → Set AFK\n' +
         (message.author.id === config.ownerId ? '` $dm <msg> ` → Mass DM (owner only)' : '')
     });
 
-    embed.setFooter({ text: 'Redeem a key to unlock modes' });
+    embed.setFooter({ text: 'Redeem a key to unlock mode-specific commands' });
 
     return message.channel.send({ embeds: [embed] });
   }
 
+  // Redeem
   if (cmd === 'redeem') {
     if (!args[0]) return message.reply('Usage: $redeem <key>');
     const key = args[0];
@@ -187,12 +215,20 @@ client.on('messageCreate', async message => {
     message.reply(`**${type} key activated!**\nReply with **1** (Ticket) or **2** (Middleman)`);
 
     try {
-      await message.author.send(`**You have redeemed a ${type} key!**\n\n**Tutorial:**\n1. Go to a channel for tickets/category.\n2. Type **$shazam** and answer questions.\n3. Use **$ticket1** (ticket mode) or **$schior** (middleman mode).\n\nGood luck!`);
+      await message.author.send(
+        `**You have redeemed a ${type} key!**\n\n` +
+        `**Tutorial:**\n` +
+        `1. Go to a channel for tickets/category.\n` +
+        `2. Type **$shazam** and answer questions.\n` +
+        `3. Use **$ticket1** (ticket mode) or **$schior** (middleman mode).\n\n` +
+        `Good luck!`
+      );
     } catch {
       message.reply('DM failed (closed?). Check reply above.');
     }
   }
 
+  // Mode choice
   if (userMode && userMode.mode === null) {
     const content = message.content.trim().toLowerCase();
     if (content === '1' || content === 'ticket') {
@@ -207,11 +243,13 @@ client.on('messageCreate', async message => {
     }
   }
 
+  // Shazam setup
   if (cmd === 'shazam') {
     if (!userMode || userMode.mode === null) return message.reply('Redeem & choose mode first.');
     await message.reply('Setup started. Answer each question. Type "cancel" to stop.');
 
-    let ans = await askQuestion(message.channel, userId, 'Ticket transcripts channel ID:');
+    let ans;
+    ans = await askQuestion(message.channel, userId, 'Ticket transcripts channel ID:');
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
     setup.transcriptsChannel = ans;
 
@@ -225,10 +263,112 @@ client.on('messageCreate', async message => {
 
     let valid = false;
     while (!valid) {
-      ans = await askQuestion(message.channel, userId, 'Verification link (https://...):');
+      ans = await askQuestion(message.channel, userId, 'Verification link (must start with https://):');
       if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
       if (ans.startsWith('https://')) {
         setup.verificationLink = ans;
         valid = true;
       } else {
-        await message.channel.send('Must
+        await message.channel.send('Link must start with **https://**. Try again.');
+      }
+    }
+
+    ans = await askQuestion(message.channel, userId, 'Guide channel ID:');
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
+    setup.guideChannel = ans;
+
+    ans = await askQuestion(message.channel, userId, 'Co-owner role ID:');
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
+    setup.coOwnerRole = ans;
+
+    saveData();
+    return message.channel.send('✅ **Setup finished successfully!**\nYou can now use `$ticket1` to post the panel.');
+  }
+
+  // Ticket panel
+  if (cmd === 'ticket1') {
+    if (!isTicketUser(userId)) return message.reply('You need to activate **ticket** mode first (redeem key → choose 1).');
+
+    const embed = new EmbedBuilder()
+      .setColor(0x0088ff)
+      .setDescription(
+        `Found a trade and would like to ensure a safe trading experience?
+
+**Open a ticket below**
+
+**What we provide**
+• We provide safe traders between 2 parties
+• We provide fast and easy deals
+
+**Important notes**
+• Both parties must agree before opening a ticket
+• Fake/Troll tickets will result into a ban or ticket blacklist
+• Follow discord Terms of service and server guidelines`
+      )
+      .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
+      .setFooter({ text: 'Safe Trading Server' });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('request_ticket')
+        .setLabel('Request')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('📩')
+    );
+
+    try {
+      await message.channel.send({ embeds: [embed], components: [row] });
+    } catch (err) {
+      console.error('Failed to send panel:', err.message);
+      await message.reply('Failed to send the panel. Check bot permissions.');
+    }
+  }
+
+  const ticket = data.tickets[message.channel.id];
+  if (ticket) {
+    const isMM = message.member.roles.cache.has(setup.middlemanRole);
+    const isClaimed = message.author.id === ticket.claimedBy;
+    const isCo = message.member.roles.cache.has(setup.coOwnerRole);
+    const canManage = isMM || isClaimed || isCo;
+
+    if (cmd === 'claim') {
+      if (!isMM) return message.reply('Only middlemen can claim tickets.');
+      if (ticket.claimedBy) return message.reply('Ticket is already claimed.');
+      ticket.claimedBy = message.author.id;
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      return message.channel.send(`**${message.author} has claimed ticket**`);
+    }
+
+    if (cmd === 'unclaim') {
+      if (!isMM && !isCo) return message.reply('Only middlemen or co-owners can unclaim.');
+      if (!ticket.claimedBy) return message.reply('Ticket is not claimed.');
+      if (ticket.claimedBy !== message.author.id && !isCo) return message.reply('Only the claimer or co-owner can unclaim.');
+      ticket.claimedBy = null;
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      return message.channel.send('**Ticket has been unclaimed.**');
+    }
+
+    if (cmd === 'close') {
+      if (!isClaimed && !isCo) return message.reply('Only the claimed middleman or co-owner can close this ticket.');
+      try {
+        const msgs = await message.channel.messages.fetch({ limit: 100 });
+        const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[attachment]'}`).join('\n');
+        const chan = message.guild.channels.cache.get(setup.transcriptsChannel);
+        if (chan) {
+          await chan.send(`**Transcript – ${message.channel.name}**\n\`\`\`\n${transcript.slice(0, 1900)}\n\`\`\``);
+        }
+        await message.reply('Closing ticket... Transcript sent.');
+        await message.channel.delete();
+      } catch (err) {
+        console.error('Close error:', err.message);
+        await message.reply('Could not close ticket properly.');
+      }
+    }
+
+    if (cmd === 'add') {
+      if (!canManage) return message.reply('Only middlemen and co-owners can add users.');
+      const target = message.mentions.users.first() || client.users.cache.get(args[0]);
+      if (!target) return message.reply('Usage: $add @user or $add ID');
+      if
