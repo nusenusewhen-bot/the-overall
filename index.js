@@ -143,7 +143,18 @@ client.on('messageCreate', async message => {
       if (content === '2' || content === 'middleman') {
         data.userModes[userId].middleman = true;
         saveData();
-        return message.reply('**Middleman mode activated!** Use $schior.');
+        message.reply('**Middleman mode activated!** Use $schior.');
+        // Ask for middleman role ID immediately
+        await message.channel.send('What is the **Middleman role ID**? (reply with the ID)');
+        const roleId = await askQuestion(message.channel, userId, 'Middleman role ID:');
+        if (roleId && !roleId.toLowerCase().includes('cancel')) {
+          data.guilds[guildId].setup.middlemanRole = roleId.trim();
+          saveData();
+          message.reply(`Middleman role ID saved: **${roleId}**`);
+        } else {
+          message.reply('Setup cancelled for middleman role.');
+        }
+        return;
       }
     }
     return;
@@ -205,6 +216,7 @@ client.on('messageCreate', async message => {
     return message.channel.send({ embeds: [embed] });
   }
 
+  // Redeem
   if (cmd === 'redeem') {
     if (!args[0]) return message.reply('Usage: $redeem <key>');
     const key = args[0];
@@ -234,7 +246,18 @@ client.on('messageCreate', async message => {
     if (content === '2' || content === 'middleman') {
       data.userModes[userId].middleman = true;
       saveData();
-      return message.reply('**Middleman mode activated!** Use $schior.');
+      message.reply('**Middleman mode activated!** Use $schior.');
+      // Ask for middleman role ID immediately
+      await message.channel.send('What is the **Middleman role ID**? (reply with the ID)');
+      const roleId = await askQuestion(message.channel, userId, 'Middleman role ID:');
+      if (roleId && !roleId.toLowerCase().includes('cancel')) {
+        data.guilds[guildId].setup.middlemanRole = roleId.trim();
+        saveData();
+        message.reply(`Middleman role ID saved: **${roleId}**`);
+      } else {
+        message.reply('Setup cancelled for middleman role.');
+      }
+      return;
     }
   }
 
@@ -243,7 +266,7 @@ client.on('messageCreate', async message => {
     return; // silent ignore
   }
 
-  // Shazam setup
+  // Shazam setup (ticket mode required)
   if (cmd === 'shazam') {
     if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
     await message.reply('Setup started. Answer each question. Type "cancel" to stop.');
