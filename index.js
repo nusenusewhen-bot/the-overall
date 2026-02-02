@@ -6,10 +6,7 @@ const {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
-  PermissionsBitField,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle
+  PermissionsBitField
 } = require('discord.js');
 const fs = require('fs');
 
@@ -36,6 +33,7 @@ let data = {
   afk: {}
 };
 
+// Load data
 if (fs.existsSync(DATA_FILE)) {
   try {
     const raw = fs.readFileSync(DATA_FILE, 'utf8');
@@ -54,6 +52,7 @@ if (fs.existsSync(DATA_FILE)) {
   }
 }
 
+// Save data
 function saveData() {
   try {
     const serial = { ...data, redeemedUsers: Array.from(data.redeemedUsers) };
@@ -64,6 +63,7 @@ function saveData() {
   }
 }
 
+// Helper functions
 function hasTicketMode(userId) { return data.userModes[userId]?.ticket === true; }
 function hasMiddlemanMode(userId) { return data.userModes[userId]?.middleman === true; }
 function isRedeemed(userId) { return data.redeemedUsers.has(userId); }
@@ -137,19 +137,21 @@ async function updateTicketPerms(channel, ticket, setup) {
   }
 }
 
+// Ready
 client.once('ready', () => {
   console.log(`[READY] ${client.user.tag} online`);
 });
 
+// Message handler
 client.on('messageCreate', async message => {
   if (message.author.bot || !message.guild) return;
 
   const userId = message.author.id;
   const guildId = message.guild.id;
-  if (!data.guilds[guildId]) data.guilds[guildId] = { setup: {} };
-  const setup = data.guilds[guildId].setup;
 
+  if (!data.guilds[guildId]) data.guilds[guildId] = { setup: {} };
   if (!data.userModes[userId]) data.userModes[userId] = { ticket: false, middleman: false };
+  const setup = data.guilds[guildId].setup;
 
   // AFK remove
   if (data.afk[userId]) {
@@ -179,68 +181,44 @@ client.on('messageCreate', async message => {
     }
   }
 
-  // Redeem reply - only redeemer
+  // Redeem pending reply
   if (!message.content.startsWith(config.prefix) && data.redeemPending[userId]) {
     const content = message.content.trim().toLowerCase();
-
     if (content === '1' || content === 'ticket') {
       data.userModes[userId].ticket = true;
       delete data.redeemPending[userId];
       saveData();
       return message.reply('**Ticket mode activated!** Use $shazam.');
     }
-
     if (content === '2' || content === 'middleman') {
       data.userModes[userId].middleman = true;
       delete data.redeemPending[userId];
       saveData();
       message.reply('**Middleman mode activated!** Use $schior.');
 
-      // Middleman role ID
+      // Ask for roles and channels
       await message.channel.send('**Middleman role ID** (numbers only):');
       const roleId = await askQuestion(message.channel, userId, 'Middleman role ID (numbers only):', ans => /^\d+$/.test(ans));
-      if (roleId) {
-        data.guilds[guildId].setup.middlemanRole = roleId;
-        saveData();
-        message.reply(`Middleman role saved: \`${roleId}\``);
-      } else {
-        message.reply('Cancelled or invalid.');
-      }
+      if (roleId) { data.guilds[guildId].setup.middlemanRole = roleId; saveData(); message.reply(`Saved: ${roleId}`); }
 
-      // Hitter role ID
       await message.channel.send('**Hitter role ID** (numbers only):');
       const hitterId = await askQuestion(message.channel, userId, 'Hitter role ID (numbers only):', ans => /^\d+$/.test(ans));
-      if (hitterId) {
-        data.guilds[guildId].setup.hitterRole = hitterId;
-        saveData();
-        message.reply(`Hitter role saved: \`${hitterId}\``);
-      } else {
-        message.reply('Cancelled or invalid.');
-      }
+      if (hitterId) { data.guilds[guildId].setup.hitterRole = hitterId; saveData(); message.reply(`Saved: ${hitterId}`); }
 
-      // Welcome channel ID
-      await message.channel.send('**Welcome hitter channel ID** (numbers only):');
+      await message.channel.send('**Welcome channel ID** (numbers only):');
       const welcomeId = await askQuestion(message.channel, userId, 'Welcome channel ID (numbers only):', ans => /^\d+$/.test(ans));
-      if (welcomeId) {
-        data.guilds[guildId].setup.welcomeHitterChannel = welcomeId;
-        saveData();
-        message.reply(`Welcome channel saved: \`${welcomeId}\``);
-      } else {
-        message.reply('Cancelled or invalid.');
-      }
+      if (welcomeId) { data.guilds[guildId].setup.welcomeHitterChannel = welcomeId; saveData(); message.reply(`Saved: ${welcomeId}`); }
 
       return;
     }
-
     return message.reply('Reply **1** or **2** only.');
   }
 
   if (!message.content.startsWith(config.prefix)) return;
-
   const args = message.content.slice(config.prefix.length).trim().split(/ +/);
   const cmd = args.shift()?.toLowerCase();
 
-  // Redeem
+  // Redeem command
   if (cmd === 'redeem') {
     if (!args[0]) return message.reply('Usage: $redeem <key>');
     const key = args[0];
@@ -252,22 +230,18 @@ client.on('messageCreate', async message => {
     data.redeemedUsers.add(userId);
     data.redeemPending[userId] = true;
     saveData();
+    message.reply(`**${type} key activated!** Reply **1** (Ticket) or **2** (Middleman).`);
 
-    message.reply(`**${type} key activated!**\n**Only you** can reply now. Send **1** (Ticket) or **2** (Middleman)`);
-
-    try {
-      await message.author.send(`**Redeemed ${type}!**\nReply **1** or **2** in channel (only you can).`);
-    } catch {}
+    try { await message.author.send(`**Redeemed ${type}!** Reply 1 or 2 in channel.`); } catch {}
     return;
   }
 
-  // Shazam - only redeemed
+  // Shazam
   if (cmd === 'shazam') {
     if (!isRedeemed(userId)) return;
     if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
 
     await message.reply('**Setup started.** Answer questions. "cancel" to stop.');
-
     let ans;
     ans = await askQuestion(message.channel, userId, 'Transcripts channel ID (numbers):', a => /^\d+$/.test(a));
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
@@ -281,16 +255,11 @@ client.on('messageCreate', async message => {
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.hitterRole = ans;
 
-    let valid = false;
-    while (!valid) {
+    while (true) {
       ans = await askQuestion(message.channel, userId, 'Verification link (https://...)');
       if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
-      if (ans.startsWith('https://')) {
-        setup.verificationLink = ans;
-        valid = true;
-      } else {
-        await message.channel.send('Must start with https://.');
-      }
+      if (ans.startsWith('https://')) { setup.verificationLink = ans; break; }
+      await message.channel.send('Must start with https://.');
     }
 
     ans = await askQuestion(message.channel, userId, 'Guide channel ID (numbers):', a => /^\d+$/.test(a));
@@ -308,137 +277,67 @@ client.on('messageCreate', async message => {
   // Ticket panel
   if (cmd === 'ticket1') {
     if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
+
     const embed = new EmbedBuilder()
       .setColor(0x0088ff)
-      .setDescription(
-        `Found a trade and would like to ensure a safe trading experience?
-
-**Open a ticket below**
-
-**What we provide**
-• We provide safe traders between 2 parties
-• We provide fast and easy deals
-
-**Important notes**
-• Both parties must agree before opening a ticket
-• Fake/Troll tickets will result into a ban or ticket blacklist
-• Follow discord Terms of service and server guidelines`
-      )
-      .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
-      .setFooter({ text: 'Safe Trading Server' });
+      .setDescription(`Found a trade? Open a ticket below.`)
+      .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif');
 
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('request_ticket')
-        .setLabel('Request')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('📩')
+      new ButtonBuilder().setCustomId('request_ticket').setLabel('Request').setStyle(ButtonStyle.Primary).setEmoji('📩')
     );
 
     await message.channel.send({ embeds: [embed], components: [row] });
   }
+});
 
-  // Middleman commands
-  const isMiddleman = message.member.roles.cache.has(setup.middlemanRole);
-  if (['schior', 'mmfee', 'confirm'].includes(cmd) && !isMiddleman) {
-    console.log(`Ignored ${cmd} from ${message.author.tag} - no middleman role`);
-    return;
+// Interaction handler
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isButton()) return;
+
+  const setup = data.guilds[interaction.guild.id]?.setup || {};
+
+  // Request ticket
+  if (interaction.customId === 'request_ticket') {
+    await interaction.deferReply({ ephemeral: true });
+    const channel = await interaction.guild.channels.create({
+      name: `ticket-${interaction.user.username}`,
+      type: ChannelType.GuildText,
+      permissionOverwrites: [
+        { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+        { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
+        ...(setup.middlemanRole ? [{ id: setup.middlemanRole, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }] : [])
+      ]
+    });
+
+    data.tickets[channel.id] = { opener: interaction.user.id, claimedBy: null, addedUsers: [] };
+    saveData();
+    await interaction.editReply({ content: `✅ Ticket created: ${channel}` });
+    await channel.send(`Welcome ${interaction.user}. Please explain your trade.`);
   }
 
-  if (cmd === 'schior') {
-    const embed = new EmbedBuilder()
-      .setColor(0x000000)
-      .setTitle('Want to join us?')
-      .setDescription(
-        `You just got scammed! Wanna be a hitter like us? 😈\n\n` +
-        `1. You find victim in trading server (for eg: ADM, MM2, PSX ETC.)\n` +
-        `2. You get the victim to use our middleman service's\n` +
-        `3. Then the middleman will help you scam the item CRYPTPO/ROBUX/INGAME ETC.\n` +
-        `4. Once done the middleman and you split the item 50/50\n\n` +
-        `Be sure to check the guide channel for everything you need to know.\n\n` +
-        `**STAFF IMPORTANT**\n` +
-        `If you're ready, click the button below to start and join the team!\n\n` +
-        `🕒 You have 1 hour to click 'Join Us' or you will be kicked!`
-      );
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('join_hitter').setLabel('Join Us').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('not_interested_hitter').setLabel('Not Interested').setStyle(ButtonStyle.Danger)
-    );
-
-    await message.channel.send({ embeds: [embed], components: [row] });
-  }
-
-  if (cmd === 'mmfee') {
-    const embed = new EmbedBuilder()
-      .setColor(0x00ff88)
-      .setTitle('💰 Middleman Fee Guide')
-      .setDescription(
-        `**Small trades** (low value): **Free** ✅\n` +
-        `**High-value trades**: Small fee (negotiable)\n\n` +
-        `Fees reward the middleman's time & risk.\n` +
-        `Accepted: Robux • Items • Crypto • Cash\n\n` +
-        `**Split options**\n` +
-        `• **50/50** – both pay half\n` +
-        `• **100%** – one side covers full fee`
-      )
-      .setFooter({ text: 'Choose below • Protects both parties' });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('fee_50').setLabel('50/50').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('fee_100').setLabel('100%').setStyle(ButtonStyle.Primary)
-    );
-
-    await message.channel.send({ embeds: [embed], components: [row] });
-  }
-
-  if (cmd === 'mminfo') {
-    const embed = new EmbedBuilder()
-      .setColor(0x000000)
-      .setTitle('Middleman Service')
-      .setDescription(
-        `A Middleman is a trusted staff member who ensures trades happen fairly.\n\n` +
-        `**Example:**\n` +
-        `If you're trading 2k Robux for an Adopt Me Crow,\n` +
-        `the MM will hold the Crow until payment is confirmed,\n` +
-        `then release it to you.\n\n` +
-        `**Benefits:** Prevents scams, ensures smooth transactions.`
-      )
-      .setImage('https://raw.githubusercontent.com/nusenusewhen-bot/the-overall/main/image-34.png')
-      .setFooter({ text: 'Middleman Service • Secure Trades' });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('understood_mm').setLabel('Understood').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('didnt_understand_mm').setLabel('Didnt Understand').setStyle(ButtonStyle.Danger)
-    );
-
-    await message.channel.send({ embeds: [embed], components: [row] });
-  }
-
-  // Ticket commands
-  const ticket = data.tickets[message.channel.id];
-  if (ticket) {
-    const isMM = message.member.roles.cache.has(setup.middlemanRole);
-    const isClaimed = message.author.id === ticket.claimedBy;
-    const isCo = message.member.roles.cache.has(setup.coOwnerRole);
-    const canManage = isMM || isClaimed || isCo;
-
-    if (cmd === 'add') {
-      if (!canManage) return message.reply('Only middlemen, claimer or co-owners can add users.');
-      const target = message.mentions.users.first() || client.users.cache.get(args[0]);
-      if (!target) return message.reply('Usage: $add @user or $add ID');
-      if (ticket.addedUsers.includes(target.id)) return message.reply('Already added.');
-      ticket.addedUsers.push(target.id);
-      saveData();
-      await updateTicketPerms(message.channel, ticket, setup);
-      return message.reply(`Added ${target}.`);
+  // Other buttons
+  if (interaction.customId === 'join_hitter') {
+    if (setup.hitterRole && !interaction.member.roles.cache.has(setup.hitterRole)) await interaction.member.roles.add(setup.hitterRole);
+    if (setup.welcomeHitterChannel) {
+      const wch = interaction.guild.channels.cache.get(setup.welcomeHitterChannel);
+      if (wch) await wch.send(`**${interaction.user} joined as a hitter!**`);
     }
+    await interaction.reply({ content: 'Joined! Check welcome channel.', ephemeral: true });
+  }
 
-    if (cmd === 'close') {
-      if (!isClaimed && !isCo) return message.reply('Only claimer or co-owner can close.');
-      const msgs = await message.channel.messages.fetch({ limit: 100 });
-      const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[Media]'}`).join('\n');
-      const chan = message.guild.channels.cache.get(setup.transcriptsChannel);
-      if (chan) await chan.send(`
+  if (interaction.customId === 'not_interested_hitter') {
+    await interaction.reply({ content: `${interaction.user} was not interested.`, ephemeral: true });
+  }
 
-      client.login(process.env.TOKEN);
+  if (interaction.customId === 'understood_mm') {
+    await interaction.reply({ content: `${interaction.user} understood.`, ephemeral: true });
+  }
+
+  if (interaction.customId === 'didnt_understand_mm') {
+    await interaction.reply({ content: `${interaction.user} needs help.`, ephemeral: true });
+  }
+});
+
+// Login
+client.login(process.env.TOKEN);
