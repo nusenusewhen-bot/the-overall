@@ -64,7 +64,7 @@ client.once('ready', () => {
 async function askQuestion(channel, userId, question) {
   await channel.send(question);
   const filter = m => m.author.id === userId && !m.author.bot;
-  const collector = channel.createMessageCollector({ filter, max: 1, time: 120000 });
+  const collector = channel.createMessageCollector({ filter, max: 1, time: 120_000 });
   return new Promise(resolve => {
     collector.on('collect', m => resolve(m.content.trim()));
     collector.on('end', (c, r) => {
@@ -165,13 +165,13 @@ client.on('messageCreate', async message => {
     embed.addFields({
       name: '🛡️ Middleman Commands (middleman mode only)',
       value: 
-        '` $schior ` → Recruitment embed + buttons\n' +
+        '` $schior ` → Recruitment embed + Join/Not Interested buttons\n' +
         '` $mmfee ` → Fee choice embed\n' +
         '` $confirm ` → Trade confirm embed\n' +
         '` $vouch @user ` → +1 vouch\n' +
         '` $vouches [@user] ` → Check vouches\n' +
         '` $afk [reason] ` → Set AFK\n' +
-        (isMiddle ? '✅ You can use these.' : '🔒 Need middleman mode.')
+        (isMiddle ? '✅ You have access.' : '🔒 Redeem key + choose 2 to unlock.')
     });
 
     embed.addFields({
@@ -183,7 +183,7 @@ client.on('messageCreate', async message => {
         '` $close ` → Close + transcript\n' +
         '` $add @user ` → Add user\n' +
         '` $transfer @user ` → Transfer claim\n' +
-        (isTicket ? '✅ You can use these.' : '🔒 Need ticket mode.')
+        (isTicket ? '✅ You have access.' : '🔒 Redeem key + choose 1 to unlock.')
     });
 
     embed.addFields({
@@ -192,11 +192,11 @@ client.on('messageCreate', async message => {
         '` $redeem <key> ` → Redeem key\n' +
         '` $help ` → This list\n' +
         '` $vouches [@user] ` → Check vouches\n' +
-        '` $afk [reason] ` → AFK status\n' +
+        '` $afk [reason] ` → Set AFK\n' +
         (message.author.id === config.ownerId ? '` $dm <msg> ` → Mass DM (owner only)' : '')
     });
 
-    embed.setFooter({ text: 'Redeem a key first to unlock modes' });
+    embed.setFooter({ text: 'Redeem a key to unlock modes' });
 
     return message.channel.send({ embeds: [embed] });
   }
@@ -228,7 +228,7 @@ client.on('messageCreate', async message => {
     }
   }
 
-  // Mode choice (plain text reply)
+  // Mode choice
   if (userMode && userMode.mode === null) {
     const content = message.content.trim().toLowerCase();
     if (content === '1' || content === 'ticket') {
@@ -356,3 +356,172 @@ client.on('messageCreate', async message => {
       if (!isClaimed && !isCo) return message.reply('Only claimed middleman or co-owner can close.');
       const msgs = await message.channel.messages.fetch({ limit: 100 });
       const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[Media]'}`).join('\n');
+      const chan = message.guild.channels.cache.get(setup.transcriptsChannel);
+      if (chan) await chan.send(`**Transcript: ${message.channel.name}**\n\`\`\`\n${transcript.slice(0, 1900)}\n\`\`\``);
+      await message.reply('Closing ticket...');
+      await message.channel.delete();
+    }
+
+    if (cmd === 'claim') {
+      if (!isMM) return message.reply('Only middlemen can claim.');
+      if (ticket.claimedBy) return message.reply('Already claimed.');
+      ticket.claimedBy = message.author.id;
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      return message.channel.send(`**${message.author} has claimed ticket**`);
+    }
+
+    if (cmd === 'unclaim') {
+      if (!isMM && !isCo) return message.reply('Only middlemen or co-owners can unclaim.');
+      if (!ticket.claimedBy) return message.reply('Not claimed.');
+      if (ticket.claimedBy !== message.author.id && !isCo) return message.reply('Only claimer or co-owner can unclaim.');
+      ticket.claimedBy = null;
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      return message.channel.send(`**${message.author} has unclaimed the ticket, other staff members can now claim.**`);
+    }
+
+    if (cmd === 'mmfee') {
+      const embed = new EmbedBuilder()
+        .setColor(0x000000)
+        .setDescription(
+          `**Small trades:** Free\n` +
+          `**High-value trades:** May require a small tip/fee.\n\n` +
+          `Fees help reward the MM's time & effort.\n` +
+          `We accept Robux, in-game items, crypto, or cash.\n\n` +
+          `Would you like to pay **100%** or split **50/50**?`
+        );
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('fee_50').setLabel('50%').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('fee_100').setLabel('100%').setStyle(ButtonStyle.Primary)
+      );
+
+      await message.channel.send({ embeds: [embed], components: [row] });
+    }
+
+    if (cmd === 'confirm') {
+      const embed = new EmbedBuilder()
+        .setColor(0x000000)
+        .setDescription(
+          `**Do we both confirm this trade?**\n\n` +
+          `If you confirm this trade, please click **Confirm**.\n` +
+          `If you decline this trade, please click **Decline**.`
+        );
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('confirm_trade_yes').setLabel('Confirm').setStyle(ButtonStyle.Success).setEmoji('✅'),
+        new ButtonBuilder().setCustomId('confirm_trade_no').setLabel('Decline').setStyle(ButtonStyle.Danger).setEmoji('❌')
+      );
+
+      await message.channel.send({ embeds: [embed], components: [row] });
+    }
+  }
+
+  // Middleman recruitment
+  if (cmd === 'schior') {
+    if (!isMiddlemanUser(userId)) return message.reply('Middleman mode required.');
+    const embed = new EmbedBuilder()
+      .setColor(0x000000)
+      .setTitle('Want to join us?')
+      .setDescription(
+        `You just got scammed! Wanna be a hitter like us? 😈\n\n` +
+        `1. You find victim in trading server (for eg: ADM, MM2, PSX ETC.)\n` +
+        `2. You get the victim to use our middleman service's\n` +
+        `3. Then the middleman will help you scam the item CRYPTPO/ROBUX/INGAME ETC.\n` +
+        `4. Once done the middleman and you split the item 50/50\n\n` +
+        `Be sure to check the guide channel for everything you need to know.`
+      )
+      .addFields({
+        name: 'STAFF IMPORTANT',
+        value: 'If you\'re ready, click the button below to start and join the team!'
+      })
+      .setFooter({ text: 'You have 1 hour to click \'Join Us\' or you will be kicked!' });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('join_hitter').setLabel('Join Us').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('not_interested_hitter').setLabel('Not Interested').setStyle(ButtonStyle.Danger)
+    );
+
+    await message.channel.send({ embeds: [embed], components: [row] });
+  }
+
+  // Vouches
+  if (cmd === 'vouches') {
+    let targetId = userId;
+    if (message.mentions.users.size) targetId = message.mentions.users.first().id;
+    const count = data.vouches[targetId] || 0;
+    const target = client.users.cache.get(targetId);
+    return message.reply(targetId === userId ? `Your vouches: **${count}**` : `**${target?.tag || 'User'}** vouches: **${count}**`);
+  }
+
+  if (cmd === 'setvouches') {
+    if (!message.member.roles.cache.has(setup.coOwnerRole) && message.author.id !== config.ownerId) {
+      return message.reply('Co-owner or bot owner only.');
+    }
+    const target = message.mentions.users.first();
+    if (!target) return message.reply('Usage: $setvouches @user number');
+    const num = parseInt(args[1] || args[0]);
+    if (isNaN(num) || num < 0) return message.reply('Valid number required.');
+    data.vouches[target.id] = num;
+    saveData();
+    return message.reply(`**${target.tag}** vouches set to **${num}**.`);
+  }
+
+  if (cmd === 'vouch') {
+    const target = message.mentions.users.first();
+    if (!target) return message.reply('Usage: $vouch @user');
+    data.vouches[target.id] = (data.vouches[target.id] || 0) + 1;
+    saveData();
+    return message.channel.send(`+1 vouch for **${target.tag}** → **${data.vouches[target.id]}**`);
+  }
+
+  // $dm (owner only)
+  if (cmd === 'dm') {
+    if (message.author.id !== config.ownerId) return message.reply('Bot owner only.');
+    const msg = args.join(' ');
+    if (!msg) return message.reply('Usage: $dm <message>');
+    let sent = 0, failed = 0;
+    for (const uid in data.userModes) {
+      try {
+        const u = await client.users.fetch(uid);
+        await u.send(msg);
+        sent++;
+      } catch {
+        failed++;
+      }
+    }
+    return message.reply(`Sent to ${sent} users. Failed: ${failed}`);
+  }
+
+  // $afk
+  if (cmd === 'afk') {
+    const reason = args.join(' ') || 'AFK';
+    data.afk[userId] = { reason, afkSince: Date.now() };
+    saveData();
+
+    try {
+      await message.member.setNickname(`[AFK] ${message.member.displayName}`);
+      await message.reply(`AFK set.\n**Reason:** ${reason}`);
+    } catch {
+      await message.reply(`AFK set (nickname failed). Reason: ${reason}`);
+    }
+  }
+});
+
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isButton() && !interaction.isModalSubmit()) return;
+
+  const setup = data.guilds[interaction.guild.id]?.setup || {};
+  const ticket = data.tickets[interaction.channel?.id];
+
+  if (interaction.isButton()) {
+    if (interaction.customId === 'request_ticket') {
+      const modal = new ModalBuilder()
+        .setCustomId('ticket_modal')
+        .setTitle('Trade Ticket Form');
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('
