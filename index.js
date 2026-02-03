@@ -338,7 +338,7 @@ client.on('messageCreate', async message => {
 
   // Middleman commands
   const isMiddleman = message.member.roles.cache.has(setup.middlemanRole);
-  if (['schior', 'mmfee', 'confirm'].includes(cmd) && !isMiddleman) {
+  if (['schior', 'mmfee', 'confirm', 'vouch', 'setvouches'].includes(cmd) && !isMiddleman) {
     console.log(`Ignored ${cmd} from ${message.author.tag} - no middleman role`);
     return;
   }
@@ -413,34 +413,33 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // Ticket commands (in ticket channel)
-  const ticket = data.tickets[message.channel.id];
-  if (ticket) {
-    const isMM = message.member.roles.cache.has(setup.middlemanRole);
-    const isClaimed = message.author.id === ticket.claimedBy;
-    const isCo = message.member.roles.cache.has(setup.coOwnerRole);
-    const canManage = isMM || isClaimed || isCo;
+  // Vouch commands
+  if (cmd === 'vouch') {
+    if (!message.mentions.users.size) return message.reply('Usage: $vouch @user');
+    const target = message.mentions.users.first();
+    if (!target) return message.reply('Invalid user.');
+    if (target.id === userId) return message.reply('You can\'t vouch yourself.');
+    data.vouches[target.id] = (data.vouches[target.id] || 0) + 1;
+    saveData();
+    return message.reply(`**Vouched +1** for ${target}! Total: ${data.vouches[target.id]}`);
+  }
 
-    if (cmd === 'add') {
-      if (!canManage) return message.reply('Only middlemen, claimer or co-owners can add users.');
-      const target = message.mentions.users.first() || client.users.cache.get(args[0]);
-      if (!target) return message.reply('Usage: $add @user or $add ID');
-      if (ticket.addedUsers.includes(target.id)) return message.reply('Already added.');
-      ticket.addedUsers.push(target.id);
-      saveData();
-      await updateTicketPerms(message.channel, ticket, setup);
-      return message.reply(`Added ${target}.`);
-    }
+  if (cmd === 'setvouches') {
+    if (message.author.id !== config.ownerId) return message.reply('Owner only.');
+    if (!message.mentions.users.size || !args[1]) return message.reply('Usage: $setvouches @user <number>');
+    const target = message.mentions.users.first();
+    const num = parseInt(args[1]);
+    if (!target || isNaN(num)) return message.reply('Invalid user or number.');
+    data.vouches[target.id] = num;
+    saveData();
+    return message.reply(`Set vouches for ${target} to **${num}**.`);
+  }
 
-    if (cmd === 'close') {
-      if (!isClaimed && !isCo) return message.reply('Only claimer or co-owner can close.');
-      const msgs = await message.channel.messages.fetch({ limit: 100 });
-      const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[Media]'}`).join('\n');
-      const chan = message.guild.channels.cache.get(setup.transcriptsChannel);
-      if (chan) await chan.send(`**Transcript: ${message.channel.name}**\n\`\`\`\n${transcript.slice(0, 1900)}\n\`\`\``);
-      await message.reply('Closing ticket...');
-      await message.channel.delete();
-    }
+  if (cmd === 'vouches') {
+    let targetId = userId;
+    if (message.mentions.users.size) targetId = message.mentions.users.first().id;
+    const count = data.vouches[targetId] || 0;
+    return message.reply(`**Vouches:** ${count}`);
   }
 });
 
@@ -535,7 +534,7 @@ client.on('interactionCreate', async interaction => {
         );
       }
 
-      await interaction.reply({ content: 'You joined! Check the welcome channel.', ephemeral: false });
+      await interaction.reply({ content: `**${interaction.user} joined the team!** Check <#${setup.welcomeHitterChannel}>`, ephemeral: false });
     }
 
     if (interaction.customId === 'not_interested_hitter') {
@@ -548,6 +547,14 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.customId === 'didnt_understand_mm') {
       await interaction.reply({ content: `**${interaction.user}** No worries! Ask a staff member for help or read the guide channel.`, ephemeral: false });
+    }
+
+    if (interaction.customId === 'fee_50') {
+      await interaction.reply({ content: `**${interaction.user} chose 50/50 split**`, ephemeral: false });
+    }
+
+    if (interaction.customId === 'fee_100') {
+      await interaction.reply({ content: `**${interaction.user} chose 100% fee**`, ephemeral: false });
     }
   }
 
@@ -618,7 +625,7 @@ client.on('interactionCreate', async interaction => {
       await interaction.editReply(`Ticket created → ${channel}`);
     } catch (err) {
       console.error('Ticket creation error:', err);
-      await interaction.editReply('Failed to create ticket. Check bot permissions (Manage Channels & Manage Permissions).');
+      await interaction.editReply('Failed to create ticket. Bot needs Manage Channels & Manage Permissions.');
     }
   }
 });
