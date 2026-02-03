@@ -99,10 +99,8 @@ async function updateTicketPerms(channel, ticket, setup) {
       ReadMessageHistory: true
     });
 
-    const middlemanRole = ticket.isIndexTicket ? setup.indexMiddlemanRole : setup.middlemanRole;
-
-    if (middlemanRole) {
-      await channel.permissionOverwrites.edit(middlemanRole, {
+    if (setup.middlemanRole) {
+      await channel.permissionOverwrites.edit(setup.middlemanRole, {
         ViewChannel: true,
         ReadMessageHistory: true,
         SendMessages: ticket.claimedBy ? false : true
@@ -196,6 +194,7 @@ client.on('messageCreate', async message => {
       saveData();
       message.reply('**Middleman mode activated!** Use $schior.');
 
+      // Middleman role ID
       await message.channel.send('**Middleman role ID** (numbers only):');
       const roleId = await askQuestion(message.channel, userId, 'Middleman role ID (numbers only):', ans => /^\d+$/.test(ans));
       if (roleId) {
@@ -206,6 +205,7 @@ client.on('messageCreate', async message => {
         message.reply('Cancelled or invalid.');
       }
 
+      // Hitter role ID
       await message.channel.send('**Hitter role ID** (numbers only):');
       const hitterId = await askQuestion(message.channel, userId, 'Hitter role ID (numbers only):', ans => /^\d+$/.test(ans));
       if (hitterId) {
@@ -216,6 +216,7 @@ client.on('messageCreate', async message => {
         message.reply('Cancelled or invalid.');
       }
 
+      // Welcome channel ID
       await message.channel.send('**Welcome hitter channel ID** (numbers only):');
       const welcomeId = await askQuestion(message.channel, userId, 'Welcome channel ID (numbers only):', ans => /^\d+$/.test(ans));
       if (welcomeId) {
@@ -258,15 +259,11 @@ client.on('messageCreate', async message => {
     return;
   }
 
-  // Require shazam setup for ticket/index commands
-  if (['ticket1', 'index'].includes(cmd)) {
-    if (!isRedeemed(userId)) return;
-    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
-    if (!setup.middlemanRole) return message.reply('Run $shazam first to setup the bot.');
-  }
-
   // Ticket panel
   if (cmd === 'ticket1') {
+    if (!isRedeemed(userId)) return;
+    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
+
     const embed = new EmbedBuilder()
       .setColor(0x0088ff)
       .setDescription(
@@ -296,6 +293,9 @@ client.on('messageCreate', async message => {
 
   // Index panel
   if (cmd === 'index') {
+    if (!isRedeemed(userId)) return;
+    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
+
     const embed = new EmbedBuilder()
       .setColor(0x000000)
       .setTitle('Indexing Services')
@@ -495,7 +495,8 @@ client.on('interactionCreate', async interaction => {
         content: `**${interaction.user} has claimed ticket**`,
         components: [
           new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim').setStyle(ButtonStyle.Danger)
+            new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim').setStyle(ButtonStyle.Danger),
+            new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger)
           )
         ]
       });
@@ -511,10 +512,21 @@ client.on('interactionCreate', async interaction => {
         content: `**${interaction.user} has unclaimed the ticket**`,
         components: [
           new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success)
+            new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger)
           )
         ]
       });
+    }
+
+    if (interaction.customId === 'close_ticket') {
+      if (!ticket.claimedBy && !interaction.member.roles.cache.has(setup.coOwnerRole)) return interaction.reply({ content: 'Only claimer or co-owner can close.' });
+      const msgs = await interaction.channel.messages.fetch({ limit: 100 });
+      const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[Media]'}`).join('\n');
+      const chan = interaction.guild.channels.cache.get(setup.transcriptsChannel);
+      if (chan) await chan.send(`**Transcript: ${interaction.channel.name}**\n\`\`\`\n${transcript.slice(0, 1900)}\n\`\`\``);
+      await interaction.reply('Closing ticket...');
+      await interaction.channel.delete();
     }
 
     if (interaction.customId === 'join_hitter') {
@@ -639,5 +651,3 @@ client.on('interactionCreate', async interaction => {
     }
   }
 });
-
-client.login(process.env.TOKEN);
