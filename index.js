@@ -258,7 +258,7 @@ client.on('messageCreate', async message => {
     return;
   }
 
-  // Require shazam setup for ticket/index commands
+  // Require shazam setup for ticket/index
   if (['ticket1', 'index'].includes(cmd)) {
     if (!isRedeemed(userId)) return;
     if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
@@ -322,84 +322,69 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // Middleman commands
-  const isMiddleman = message.member.roles.cache.has(setup.middlemanRole);
-  if (['schior', 'mmfee', 'mminfo'].includes(cmd) && !isMiddleman) {
-    console.log(`Ignored ${cmd} from ${message.author.tag} - no middleman role`);
-    return message.reply('You need the middleman role to use this command.');
+  // Shazam setup - now asks for ticket category ID
+  if (cmd === 'shazam') {
+    if (!isRedeemed(userId)) return;
+    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
+
+    await message.reply('**Setup started.** Answer questions. "cancel" to stop.');
+
+    let ans;
+    ans = await askQuestion(message.channel, userId, 'Transcripts channel ID (numbers):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
+    setup.transcriptsChannel = ans;
+
+    ans = await askQuestion(message.channel, userId, 'Middleman role ID (numbers):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
+    setup.middlemanRole = ans;
+
+    ans = await askQuestion(message.channel, userId, 'Index Middleman role ID (numbers - who sees indexing tickets):', a => /^\d+$/.test(a));
+    if (ans && !ans.toLowerCase().includes('cancel')) {
+      setup.indexMiddlemanRole = ans;
+      saveData();
+      message.reply(`Index Middleman role saved: \`${ans}\``);
+    } else {
+      message.reply('Skipped or invalid (numbers only).');
+    }
+
+    ans = await askQuestion(message.channel, userId, 'Ticket category ID (numbers - where tickets go):', a => /^\d+$/.test(a));
+    if (ans && !ans.toLowerCase().includes('cancel')) {
+      setup.ticketCategory = ans;
+      saveData();
+      message.reply(`Ticket category ID saved: \`${ans}\``);
+    } else {
+      message.reply('Skipped or invalid — tickets will create without category.');
+    }
+
+    ans = await askQuestion(message.channel, userId, 'Hitter role ID (numbers):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
+    setup.hitterRole = ans;
+
+    let valid = false;
+    while (!valid) {
+      ans = await askQuestion(message.channel, userId, 'Verification link (https://...)');
+      if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
+      if (ans.startsWith('https://')) {
+        setup.verificationLink = ans;
+        valid = true;
+      } else {
+        await message.channel.send('Must start with https://.');
+      }
+    }
+
+    ans = await askQuestion(message.channel, userId, 'Guide channel ID (numbers):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
+    setup.guideChannel = ans;
+
+    ans = await askQuestion(message.channel, userId, 'Co-owner role ID (numbers):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
+    setup.coOwnerRole = ans;
+
+    saveData();
+    message.channel.send('**Setup complete!** Use $ticket1 or $index.');
   }
 
-  if (cmd === 'schior') {
-    const embed = new EmbedBuilder()
-      .setColor(0x000000)
-      .setTitle('Want to join us?')
-      .setDescription(
-        `You just got scammed! Wanna be a hitter like us? 😈\n\n` +
-        `1. You find victim in trading server (for eg: ADM, MM2, PSX ETC.)\n` +
-        `2. You get the victim to use our middleman service's\n` +
-        `3. Then the middleman will help you scam the item CRYPTPO/ROBUX/INGAME ETC.\n` +
-        `4. Once done the middleman and you split the item 50/50\n\n` +
-        `Be sure to check the guide channel for everything you need to know.\n\n` +
-        `**STAFF IMPORTANT**\n` +
-        `If you're ready, click the button below to start and join the team!\n\n` +
-        `🕒 You have 1 hour to click 'Join Us' or you will be kicked!`
-      );
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('join_hitter').setLabel('Join Us').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('not_interested_hitter').setLabel('Not Interested').setStyle(ButtonStyle.Danger)
-    );
-
-    await message.channel.send({ embeds: [embed], components: [row] });
-  }
-
-  if (cmd === 'mmfee') {
-    const embed = new EmbedBuilder()
-      .setColor(0x00ff88)
-      .setTitle('💰 Middleman Fee Guide')
-      .setDescription(
-        `**Small trades** (low value): **Free** ✅\n` +
-        `**High-value trades**: Small fee (negotiable)\n\n` +
-        `Fees reward the middleman's time & risk.\n` +
-        `Accepted: Robux • Items • Crypto • Cash\n\n` +
-        `**Split options**\n` +
-        `• **50/50** – both pay half\n` +
-        `• **100%** – one side covers full fee`
-      )
-      .setFooter({ text: 'Choose below • Protects both parties' });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('fee_50').setLabel('50/50').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('fee_100').setLabel('100%').setStyle(ButtonStyle.Primary)
-    );
-
-    await message.channel.send({ embeds: [embed], components: [row] });
-  }
-
-  if (cmd === 'mminfo') {
-    const embed = new EmbedBuilder()
-      .setColor(0x000000)
-      .setTitle('Middleman Service')
-      .setDescription(
-        `A Middleman is a trusted staff member who ensures trades happen fairly.\n\n` +
-        `**Example:**\n` +
-        `If you're trading 2k Robux for an Adopt Me Crow,\n` +
-        `the MM will hold the Crow until payment is confirmed,\n` +
-        `then release it to you.\n\n` +
-        `**Benefits:** Prevents scams, ensures smooth transactions.`
-      )
-      .setImage('https://raw.githubusercontent.com/nusenusewhen-bot/the-overall/main/image-34.png')
-      .setFooter({ text: 'Middleman Service • Secure Trades' });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('understood_mm').setLabel('Understood').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('didnt_understand_mm').setLabel('Didnt Understand').setStyle(ButtonStyle.Danger)
-    );
-
-    await message.channel.send({ embeds: [embed], components: [row] });
-  }
-
-  // Ticket commands (in ticket channel)
+  // Ticket commands
   const ticket = data.tickets[message.channel.id];
   if (ticket) {
     const isMM = message.member.roles.cache.has(setup.middlemanRole);
@@ -509,7 +494,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Always keep Claim/Unclaim + Close buttons
+    // Claim / Unclaim / Close - keep both buttons always
     if (interaction.customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
       if (!interaction.member.roles.cache.has(setup.middlemanRole)) return interaction.reply({ content: 'Only middlemen can claim.', ephemeral: true });
@@ -640,7 +625,7 @@ client.on('interactionCreate', async interaction => {
       const channel = await interaction.guild.channels.create({
         name: `${isIndex ? 'index' : 'ticket'}-${interaction.user.username.toLowerCase()}`,
         type: ChannelType.GuildText,
-        parent: null,
+        parent: setup.ticketCategory || null,  // <--- uses the saved category ID
         permissionOverwrites: overwrites
       });
 
@@ -690,5 +675,5 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// Token from Railway environment variables
+// Token from Railway environment variable (set in Variables tab as TOKEN)
 client.login(process.env.TOKEN);
