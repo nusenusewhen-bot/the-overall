@@ -23,7 +23,7 @@ const client = new Client({
   ]
 });
 
-const BOT_OWNER_ID = 'YOUR_OWNER_ID_HERE'; // ← Replace with your Discord ID
+const BOT_OWNER_ID = '1298640383688970293'; // ← Replace with your Discord ID
 
 const DATA_FILE = './data.json';
 let data = {
