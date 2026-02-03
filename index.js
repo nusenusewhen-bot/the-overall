@@ -99,8 +99,10 @@ async function updateTicketPerms(channel, ticket, setup) {
       ReadMessageHistory: true
     });
 
-    if (setup.middlemanRole) {
-      await channel.permissionOverwrites.edit(setup.middlemanRole, {
+    const middlemanRole = ticket.isIndexTicket ? setup.indexMiddlemanRole : setup.middlemanRole;
+
+    if (middlemanRole) {
+      await channel.permissionOverwrites.edit(middlemanRole, {
         ViewChannel: true,
         ReadMessageHistory: true,
         SendMessages: ticket.claimedBy ? false : true
@@ -194,7 +196,6 @@ client.on('messageCreate', async message => {
       saveData();
       message.reply('**Middleman mode activated!** Use $schior.');
 
-      // Middleman role ID
       await message.channel.send('**Middleman role ID** (numbers only):');
       const roleId = await askQuestion(message.channel, userId, 'Middleman role ID (numbers only):', ans => /^\d+$/.test(ans));
       if (roleId) {
@@ -205,7 +206,6 @@ client.on('messageCreate', async message => {
         message.reply('Cancelled or invalid.');
       }
 
-      // Hitter role ID
       await message.channel.send('**Hitter role ID** (numbers only):');
       const hitterId = await askQuestion(message.channel, userId, 'Hitter role ID (numbers only):', ans => /^\d+$/.test(ans));
       if (hitterId) {
@@ -216,7 +216,6 @@ client.on('messageCreate', async message => {
         message.reply('Cancelled or invalid.');
       }
 
-      // Welcome channel ID
       await message.channel.send('**Welcome hitter channel ID** (numbers only):');
       const welcomeId = await askQuestion(message.channel, userId, 'Welcome channel ID (numbers only):', ans => /^\d+$/.test(ans));
       if (welcomeId) {
@@ -259,11 +258,15 @@ client.on('messageCreate', async message => {
     return;
   }
 
-  // Ticket panel
-  if (cmd === 'ticket1') {
+  // Require shazam setup for ticket/index commands
+  if (['ticket1', 'index'].includes(cmd)) {
     if (!isRedeemed(userId)) return;
     if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
+    if (!setup.middlemanRole) return message.reply('Run $shazam first to setup the bot.');
+  }
 
+  // Ticket panel
+  if (cmd === 'ticket1') {
     const embed = new EmbedBuilder()
       .setColor(0x0088ff)
       .setDescription(
@@ -293,9 +296,6 @@ client.on('messageCreate', async message => {
 
   // Index panel
   if (cmd === 'index') {
-    if (!isRedeemed(userId)) return;
-    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
-
     const embed = new EmbedBuilder()
       .setColor(0x000000)
       .setTitle('Indexing Services')
@@ -322,57 +322,81 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // Shazam setup
-  if (cmd === 'shazam') {
-    if (!isRedeemed(userId)) return;
-    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
+  // Middleman commands
+  const isMiddleman = message.member.roles.cache.has(setup.middlemanRole);
+  if (['schior', 'mmfee', 'mminfo'].includes(cmd) && !isMiddleman) {
+    console.log(`Ignored ${cmd} from ${message.author.tag} - no middleman role`);
+    return message.reply('You need the middleman role to use this command.');
+  }
 
-    await message.reply('**Setup started.** Answer questions. "cancel" to stop.');
+  if (cmd === 'schior') {
+    const embed = new EmbedBuilder()
+      .setColor(0x000000)
+      .setTitle('Want to join us?')
+      .setDescription(
+        `You just got scammed! Wanna be a hitter like us? 😈\n\n` +
+        `1. You find victim in trading server (for eg: ADM, MM2, PSX ETC.)\n` +
+        `2. You get the victim to use our middleman service's\n` +
+        `3. Then the middleman will help you scam the item CRYPTPO/ROBUX/INGAME ETC.\n` +
+        `4. Once done the middleman and you split the item 50/50\n\n` +
+        `Be sure to check the guide channel for everything you need to know.\n\n` +
+        `**STAFF IMPORTANT**\n` +
+        `If you're ready, click the button below to start and join the team!\n\n` +
+        `🕒 You have 1 hour to click 'Join Us' or you will be kicked!`
+      );
 
-    let ans;
-    ans = await askQuestion(message.channel, userId, 'Transcripts channel ID (numbers):', a => /^\d+$/.test(a));
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
-    setup.transcriptsChannel = ans;
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('join_hitter').setLabel('Join Us').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('not_interested_hitter').setLabel('Not Interested').setStyle(ButtonStyle.Danger)
+    );
 
-    ans = await askQuestion(message.channel, userId, 'Middleman role ID (numbers):', a => /^\d+$/.test(a));
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
-    setup.middlemanRole = ans;
+    await message.channel.send({ embeds: [embed], components: [row] });
+  }
 
-    ans = await askQuestion(message.channel, userId, 'Index Middleman role ID (numbers - who sees indexing tickets):', a => /^\d+$/.test(a));
-    if (ans && !ans.toLowerCase().includes('cancel')) {
-      setup.indexMiddlemanRole = ans;
-      saveData();
-      message.reply(`Index Middleman role saved: \`${ans}\``);
-    } else {
-      message.reply('Skipped or invalid (numbers only).');
-    }
+  if (cmd === 'mmfee') {
+    const embed = new EmbedBuilder()
+      .setColor(0x00ff88)
+      .setTitle('💰 Middleman Fee Guide')
+      .setDescription(
+        `**Small trades** (low value): **Free** ✅\n` +
+        `**High-value trades**: Small fee (negotiable)\n\n` +
+        `Fees reward the middleman's time & risk.\n` +
+        `Accepted: Robux • Items • Crypto • Cash\n\n` +
+        `**Split options**\n` +
+        `• **50/50** – both pay half\n` +
+        `• **100%** – one side covers full fee`
+      )
+      .setFooter({ text: 'Choose below • Protects both parties' });
 
-    ans = await askQuestion(message.channel, userId, 'Hitter role ID (numbers):', a => /^\d+$/.test(a));
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
-    setup.hitterRole = ans;
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('fee_50').setLabel('50/50').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('fee_100').setLabel('100%').setStyle(ButtonStyle.Primary)
+    );
 
-    let valid = false;
-    while (!valid) {
-      ans = await askQuestion(message.channel, userId, 'Verification link (https://...)');
-      if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
-      if (ans.startsWith('https://')) {
-        setup.verificationLink = ans;
-        valid = true;
-      } else {
-        await message.channel.send('Must start with https://.');
-      }
-    }
+    await message.channel.send({ embeds: [embed], components: [row] });
+  }
 
-    ans = await askQuestion(message.channel, userId, 'Guide channel ID (numbers):', a => /^\d+$/.test(a));
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
-    setup.guideChannel = ans;
+  if (cmd === 'mminfo') {
+    const embed = new EmbedBuilder()
+      .setColor(0x000000)
+      .setTitle('Middleman Service')
+      .setDescription(
+        `A Middleman is a trusted staff member who ensures trades happen fairly.\n\n` +
+        `**Example:**\n` +
+        `If you're trading 2k Robux for an Adopt Me Crow,\n` +
+        `the MM will hold the Crow until payment is confirmed,\n` +
+        `then release it to you.\n\n` +
+        `**Benefits:** Prevents scams, ensures smooth transactions.`
+      )
+      .setImage('https://raw.githubusercontent.com/nusenusewhen-bot/the-overall/main/image-34.png')
+      .setFooter({ text: 'Middleman Service • Secure Trades' });
 
-    ans = await askQuestion(message.channel, userId, 'Co-owner role ID (numbers):', a => /^\d+$/.test(a));
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
-    setup.coOwnerRole = ans;
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('understood_mm').setLabel('Understood').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('didnt_understand_mm').setLabel('Didnt Understand').setStyle(ButtonStyle.Danger)
+    );
 
-    saveData();
-    message.channel.send('**Setup complete!** Use $ticket1 or $index.');
+    await message.channel.send({ embeds: [embed], components: [row] });
   }
 
   // Ticket commands (in ticket channel)
@@ -485,50 +509,64 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
+    // Always keep Claim/Unclaim + Close buttons
     if (interaction.customId === 'claim_ticket') {
-      if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.' });
-      if (!interaction.member.roles.cache.has(setup.middlemanRole)) return interaction.reply({ content: 'Only middlemen can claim.' });
+      if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
+      if (!interaction.member.roles.cache.has(setup.middlemanRole)) return interaction.reply({ content: 'Only middlemen can claim.', ephemeral: true });
+
       ticket.claimedBy = interaction.user.id;
       saveData();
       await updateTicketPerms(interaction.channel, ticket, setup);
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
+      );
+
       await interaction.update({
         content: `**${interaction.user} has claimed ticket**`,
-        components: [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim').setStyle(ButtonStyle.Danger),
-            new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger)
-          )
-        ]
+        components: [row]
       });
     }
 
     if (interaction.customId === 'unclaim_ticket') {
-      if (!ticket.claimedBy) return interaction.reply({ content: 'Not claimed.' });
-      if (ticket.claimedBy !== interaction.user.id && !interaction.member.roles.cache.has(setup.coOwnerRole)) return interaction.reply({ content: 'Only claimer or co-owner can unclaim.' });
+      if (!ticket.claimedBy) return interaction.reply({ content: 'Not claimed.', ephemeral: true });
+      if (ticket.claimedBy !== interaction.user.id && !interaction.member.roles.cache.has(setup.coOwnerRole)) {
+        return interaction.reply({ content: 'Only claimer or co-owner can unclaim.', ephemeral: true });
+      }
+
       ticket.claimedBy = null;
       saveData();
       await updateTicketPerms(interaction.channel, ticket, setup);
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
+      );
+
       await interaction.update({
         content: `**${interaction.user} has unclaimed the ticket**`,
-        components: [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger)
-          )
-        ]
+        components: [row]
       });
     }
 
     if (interaction.customId === 'close_ticket') {
-      if (!ticket.claimedBy && !interaction.member.roles.cache.has(setup.coOwnerRole)) return interaction.reply({ content: 'Only claimer or co-owner can close.' });
+      if (!ticket.claimedBy && !interaction.member.roles.cache.has(setup.coOwnerRole)) {
+        return interaction.reply({ content: 'Only claimer or co-owner can close.', ephemeral: true });
+      }
+
       const msgs = await interaction.channel.messages.fetch({ limit: 100 });
       const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[Media]'}`).join('\n');
       const chan = interaction.guild.channels.cache.get(setup.transcriptsChannel);
-      if (chan) await chan.send(`**Transcript: ${interaction.channel.name}**\n\`\`\`\n${transcript.slice(0, 1900)}\n\`\`\``);
+      if (chan) {
+        await chan.send(`**Transcript: ${interaction.channel.name}**\n\`\`\`\n${transcript.slice(0, 1900)}\n\`\`\``);
+      }
+
       await interaction.reply('Closing ticket...');
       await interaction.channel.delete();
     }
 
+    // Other buttons...
     if (interaction.customId === 'join_hitter') {
       const member = interaction.member;
       if (!member.roles.cache.has(setup.hitterRole) && setup.hitterRole) {
@@ -635,7 +673,7 @@ client.on('interactionCreate', async interaction => {
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Danger)
+        new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
       );
 
       await channel.send({
@@ -651,3 +689,6 @@ client.on('interactionCreate', async interaction => {
     }
   }
 });
+
+// Token from Railway environment variables
+client.login(process.env.TOKEN);
