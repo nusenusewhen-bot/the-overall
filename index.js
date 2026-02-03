@@ -187,7 +187,7 @@ client.on('messageCreate', async message => {
       data.userModes[userId].ticket = true;
       delete data.redeemPending[userId];
       saveData();
-      return message.reply('**Ticket mode activated!** Use $shazam or $index.');
+      return message.reply('**Ticket mode activated!** Use $shazam.');
     }
 
     if (content === '2' || content === 'middleman') {
@@ -196,7 +196,6 @@ client.on('messageCreate', async message => {
       saveData();
       message.reply('**Middleman mode activated!** Use $schior.');
 
-      // Middleman role ID
       await message.channel.send('**Middleman role ID** (numbers only):');
       const roleId = await askQuestion(message.channel, userId, 'Middleman role ID (numbers only):', ans => /^\d+$/.test(ans));
       if (roleId) {
@@ -207,7 +206,6 @@ client.on('messageCreate', async message => {
         message.reply('Cancelled or invalid.');
       }
 
-      // Hitter role ID
       await message.channel.send('**Hitter role ID** (numbers only):');
       const hitterId = await askQuestion(message.channel, userId, 'Hitter role ID (numbers only):', ans => /^\d+$/.test(ans));
       if (hitterId) {
@@ -218,7 +216,6 @@ client.on('messageCreate', async message => {
         message.reply('Cancelled or invalid.');
       }
 
-      // Welcome channel ID
       await message.channel.send('**Welcome hitter channel ID** (numbers only):');
       const welcomeId = await askQuestion(message.channel, userId, 'Welcome channel ID (numbers only):', ans => /^\d+$/.test(ans));
       if (welcomeId) {
@@ -259,6 +256,70 @@ client.on('messageCreate', async message => {
       await message.author.send(`**Redeemed ${type}!**\nReply **1** or **2** in channel (only you can).`);
     } catch {}
     return;
+  }
+
+  // Require shazam setup for ticket/index commands
+  if (['ticket1', 'index'].includes(cmd)) {
+    if (!isRedeemed(userId)) return;
+    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
+    if (!setup.middlemanRole) return message.reply('Run $shazam first to setup the bot.');
+  }
+
+  // Ticket panel
+  if (cmd === 'ticket1') {
+    const embed = new EmbedBuilder()
+      .setColor(0x0088ff)
+      .setDescription(
+        `Found a trade and would like to ensure a safe trading experience?\n\n` +
+        `**Open a ticket below**\n\n` +
+        `**What we provide**\n` +
+        `• We provide safe traders between 2 parties\n` +
+        `• We provide fast and easy deals\n\n` +
+        `**Important notes**\n` +
+        `• Both parties must agree before opening a ticket\n` +
+        `• Fake/Troll tickets will result into a ban or ticket blacklist\n` +
+        `• Follow discord Terms of service and server guidelines`
+      )
+      .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
+      .setFooter({ text: 'Safe Trading Server' });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('request_ticket')
+        .setLabel('Request')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('📩')
+    );
+
+    await message.channel.send({ embeds: [embed], components: [row] });
+  }
+
+  // Index panel
+  if (cmd === 'index') {
+    const embed = new EmbedBuilder()
+      .setColor(0x000000)
+      .setTitle('Indexing Services')
+      .setDescription(
+        `• Open this ticket if you would like a Indexing service to help finish your index and complete your base.\n\n` +
+        `• You're going to have to pay first before we let you start indexing.\n\n` +
+        `**When opening a ticket:**\n` +
+        `• Wait for a <@&${setup.indexMiddlemanRole || setup.middlemanRole || 'No index middleman role'}> to answer your ticket.\n` +
+        `• Be nice and kind to the staff and be patient.\n` +
+        `• State your roblox username on the account you want to complete the index in.\n\n` +
+        `If not following so your ticket will be deleted and you will be timed out for 1 hour 🤝`
+      )
+      .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
+      .setFooter({ text: 'Indexing Service' });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('request_index')
+        .setLabel('Request Index')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('📩')
+    );
+
+    await message.channel.send({ embeds: [embed], components: [row] });
   }
 
   // Shazam setup
@@ -314,70 +375,7 @@ client.on('messageCreate', async message => {
     message.channel.send('**Setup complete!** Use $ticket1 or $index.');
   }
 
-  // Ticket panel
-  if (cmd === 'ticket1') {
-    if (!isRedeemed(userId)) return;
-    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
-
-    const embed = new EmbedBuilder()
-      .setColor(0x0088ff)
-      .setDescription(
-        `Found a trade and would like to ensure a safe trading experience?\n\n` +
-        `**Open a ticket below**\n\n` +
-        `**What we provide**\n` +
-        `• We provide safe traders between 2 parties\n` +
-        `• We provide fast and easy deals\n\n` +
-        `**Important notes**\n` +
-        `• Both parties must agree before opening a ticket\n` +
-        `• Fake/Troll tickets will result into a ban or ticket blacklist\n` +
-        `• Follow discord Terms of service and server guidelines`
-      )
-      .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
-      .setFooter({ text: 'Safe Trading Server' });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('request_ticket')
-        .setLabel('Request')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('📩')
-    );
-
-    await message.channel.send({ embeds: [embed], components: [row] });
-  }
-
-  // Index panel
-  if (cmd === 'index') {
-    if (!isRedeemed(userId)) return;
-    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
-
-    const embed = new EmbedBuilder()
-      .setColor(0x000000)
-      .setTitle('Indexing Services')
-      .setDescription(
-        `• Open this ticket if you would like a Indexing service to help finish your index and complete your base.\n\n` +
-        `• You're going to have to pay first before we let you start indexing.\n\n` +
-        `**When opening a ticket:**\n` +
-        `• Wait for a <@&${setup.indexMiddlemanRole || setup.middlemanRole || 'No index middleman role'}> to answer your ticket.\n` +
-        `• Be nice and kind to the staff and be patient.\n` +
-        `• State your roblox username on the account you want to complete the index in.\n\n` +
-        `If not following so your ticket will be deleted and you will be timed out for 1 hour 🤝`
-      )
-      .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
-      .setFooter({ text: 'Indexing Service' });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('request_index')
-        .setLabel('Request Index')
-        .setStyle(ButtonStyle.Primary)
-        .setEmoji('📩')
-    );
-
-    await message.channel.send({ embeds: [embed], components: [row] });
-  }
-
-  // Ticket commands
+  // Ticket commands (in ticket channel)
   const ticket = data.tickets[message.channel.id];
   if (ticket) {
     const isMM = message.member.roles.cache.has(setup.middlemanRole);
