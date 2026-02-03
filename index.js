@@ -99,8 +99,11 @@ async function updateTicketPerms(channel, ticket, setup) {
       ReadMessageHistory: true
     });
 
-    if (setup.middlemanRole) {
-      await channel.permissionOverwrites.edit(setup.middlemanRole, {
+    // Use indexMiddlemanRole for indexing tickets (from $index)
+    const middlemanRole = ticket.isIndexTicket ? setup.indexMiddlemanRole : setup.middlemanRole;
+
+    if (middlemanRole) {
+      await channel.permissionOverwrites.edit(middlemanRole, {
         ViewChannel: true,
         ReadMessageHistory: true,
         SendMessages: ticket.claimedBy ? false : true
@@ -185,7 +188,7 @@ client.on('messageCreate', async message => {
       data.userModes[userId].ticket = true;
       delete data.redeemPending[userId];
       saveData();
-      return message.reply('**Ticket mode activated!** Use $shazam.');
+      return message.reply('**Ticket mode activated!** Use $shazam or $index.');
     }
 
     if (content === '2' || content === 'middleman') {
@@ -259,7 +262,7 @@ client.on('messageCreate', async message => {
     return;
   }
 
-  // Shazam - only redeemed
+  // Shazam setup - only redeemed
   if (cmd === 'shazam') {
     if (!isRedeemed(userId)) return;
     if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
@@ -274,6 +277,15 @@ client.on('messageCreate', async message => {
     ans = await askQuestion(message.channel, userId, 'Middleman role ID (numbers):', a => /^\d+$/.test(a));
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.middlemanRole = ans;
+
+    ans = await askQuestion(message.channel, userId, 'Index Middleman role ID (numbers - who sees $index tickets):', a => /^\d+$/.test(a));
+    if (ans && !ans.toLowerCase().includes('cancel')) {
+      setup.indexMiddlemanRole = ans;
+      saveData();
+      message.reply(`Index Middleman role saved: \`${ans}\``);
+    } else {
+      message.reply('Skipped or invalid (numbers only).');
+    }
 
     ans = await askQuestion(message.channel, userId, 'Hitter role ID (numbers):', a => /^\d+$/.test(a));
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
@@ -300,35 +312,45 @@ client.on('messageCreate', async message => {
     setup.coOwnerRole = ans;
 
     saveData();
-    message.channel.send('**Setup complete!** Use $ticket1.');
+    message.channel.send('**Setup complete!** Use $ticket1 or $index.');
   }
 
-  // Ticket panel
-  if (cmd === 'ticket1') {
+  // Ticket panel & Index panel - only redeemed
+  if (cmd === 'ticket1' || cmd === 'index') {
+    if (!isRedeemed(userId)) return;
     if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
+
+    const isIndex = cmd === 'index';
+
     const embed = new EmbedBuilder()
-      .setColor(0x0088ff)
+      .setColor(0x000000)
+      .setTitle(isIndex ? 'Indexing Services' : 'Middleman Ticket')
       .setDescription(
-        `Found a trade and would like to ensure a safe trading experience?
-
-**Open a ticket below**
-
-**What we provide**
-• We provide safe traders between 2 parties
-• We provide fast and easy deals
-
-**Important notes**
-• Both parties must agree before opening a ticket
-• Fake/Troll tickets will result into a ban or ticket blacklist
-• Follow discord Terms of service and server guidelines`
+        isIndex
+          ? `• Open this ticket if you would like a Indexing service to help finish your index and complete your base.\n\n` +
+            `• You're going to have to pay first before we let you start indexing.\n\n` +
+            `**When opening a ticket:**\n` +
+            `• Wait for a <@&${setup.indexMiddlemanRole || setup.middlemanRole || 'No index middleman role'}> to answer your ticket.\n` +
+            `• Be nice and kind to the staff and be patient.\n` +
+            `• State your roblox username on the account you want to complete the index in.\n\n` +
+            `If not following so your ticket will be deleted and you will be timed out for 1 hour 🤝`
+          : `Found a trade and would like to ensure a safe trading experience?\n\n` +
+            `**Open a ticket below**\n\n` +
+            `**What we provide**\n` +
+            `• We provide safe traders between 2 parties\n` +
+            `• We provide fast and easy deals\n\n` +
+            `**Important notes**\n` +
+            `• Both parties must agree before opening a ticket\n` +
+            `• Fake/Troll tickets will result into a ban or ticket blacklist\n` +
+            `• Follow discord Terms of service and server guidelines`
       )
       .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
-      .setFooter({ text: 'Safe Trading Server' });
+      .setFooter({ text: isIndex ? 'Indexing Service' : 'Safe Trading Server' });
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('request_ticket')
-        .setLabel('Request')
+        .setLabel(isIndex ? 'Request Index' : 'Request')
         .setStyle(ButtonStyle.Primary)
         .setEmoji('📩')
     );
@@ -338,7 +360,7 @@ client.on('messageCreate', async message => {
 
   // Middleman commands
   const isMiddleman = message.member.roles.cache.has(setup.middlemanRole);
-  if (['schior', 'mmfee', 'confirm', 'vouch', 'setvouches'].includes(cmd) && !isMiddleman) {
+  if (['schior', 'mmfee', 'confirm'].includes(cmd) && !isMiddleman) {
     console.log(`Ignored ${cmd} from ${message.author.tag} - no middleman role`);
     return;
   }
@@ -413,33 +435,45 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // Vouch commands
-  if (cmd === 'vouch') {
-    if (!message.mentions.users.size) return message.reply('Usage: $vouch @user');
-    const target = message.mentions.users.first();
-    if (!target) return message.reply('Invalid user.');
-    if (target.id === userId) return message.reply('You can\'t vouch yourself.');
-    data.vouches[target.id] = (data.vouches[target.id] || 0) + 1;
-    saveData();
-    return message.reply(`**Vouched +1** for ${target}! Total: ${data.vouches[target.id]}`);
-  }
+  // Ticket commands
+  const ticket = data.tickets[message.channel.id];
+  if (ticket) {
+    const isMM = message.member.roles.cache.has(setup.middlemanRole);
+    const isClaimed = message.author.id === ticket.claimedBy;
+    const isCo = message.member.roles.cache.has(setup.coOwnerRole);
+    const canManage = isMM || isClaimed || isCo;
 
-  if (cmd === 'setvouches') {
-    if (message.author.id !== config.ownerId) return message.reply('Owner only.');
-    if (!message.mentions.users.size || !args[1]) return message.reply('Usage: $setvouches @user <number>');
-    const target = message.mentions.users.first();
-    const num = parseInt(args[1]);
-    if (!target || isNaN(num)) return message.reply('Invalid user or number.');
-    data.vouches[target.id] = num;
-    saveData();
-    return message.reply(`Set vouches for ${target} to **${num}**.`);
-  }
+    if (cmd === 'add') {
+      if (!canManage) return message.reply('Only middlemen, claimer or co-owners can add users.');
+      const target = message.mentions.users.first() || client.users.cache.get(args[0]);
+      if (!target) return message.reply('Usage: $add @user or $add ID');
+      if (ticket.addedUsers.includes(target.id)) return message.reply('Already added.');
+      ticket.addedUsers.push(target.id);
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      return message.reply(`Added ${target}.`);
+    }
 
-  if (cmd === 'vouches') {
-    let targetId = userId;
-    if (message.mentions.users.size) targetId = message.mentions.users.first().id;
-    const count = data.vouches[targetId] || 0;
-    return message.reply(`**Vouches:** ${count}`);
+    if (cmd === 'transfer') {
+      if (!canManage) return message.reply('Only middlemen, claimer or co-owners can transfer.');
+      const target = message.mentions.users.first() || client.users.cache.get(args[0]);
+      if (!target) return message.reply('Usage: $transfer @user or ID');
+      if (!message.guild.members.cache.get(target.id)?.roles.cache.has(setup.middlemanRole)) return message.reply('Target must have middleman role.');
+      ticket.claimedBy = target.id;
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      return message.reply(`Transferred claim to ${target}.`);
+    }
+
+    if (cmd === 'close') {
+      if (!isClaimed && !isCo) return message.reply('Only claimer or co-owner can close.');
+      const msgs = await message.channel.messages.fetch({ limit: 100 });
+      const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[Media]'}`).join('\n');
+      const chan = message.guild.channels.cache.get(setup.transcriptsChannel);
+      if (chan) await chan.send(`**Transcript: ${message.channel.name}**\n\`\`\`\n${transcript.slice(0, 1900)}\n\`\`\``);
+      await message.reply('Closing ticket...');
+      await message.channel.delete();
+    }
   }
 });
 
@@ -570,9 +604,12 @@ client.on('interactionCreate', async interaction => {
       { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
     ];
 
-    if (setup.middlemanRole) {
+    // Use indexMiddlemanRole for indexing tickets
+    const middlemanRole = ticket?.isIndexTicket ? setup.indexMiddlemanRole : setup.middlemanRole;
+
+    if (middlemanRole) {
       overwrites.push({
-        id: setup.middlemanRole,
+        id: middlemanRole,
         allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory],
         deny: [PermissionsBitField.Flags.SendMessages]
       });
@@ -593,7 +630,7 @@ client.on('interactionCreate', async interaction => {
         permissionOverwrites: overwrites
       });
 
-      data.tickets[channel.id] = { opener: interaction.user.id, claimedBy: null, addedUsers: [], confirmVotes: {}, feeVotes: {} };
+      data.tickets[channel.id] = { opener: interaction.user.id, claimedBy: null, addedUsers: [], confirmVotes: {}, feeVotes: {}, isIndexTicket: false };
       saveData();
 
       const welcomeEmbed = new EmbedBuilder()
@@ -617,7 +654,7 @@ client.on('interactionCreate', async interaction => {
       );
 
       await channel.send({
-        content: `<@&${setup.middlemanRole || 'No middleman role'}> New ticket!`,
+        content: `<@&${middlemanRole || 'No middleman role'}> New ticket!`,
         embeds: [welcomeEmbed],
         components: [row]
       });
