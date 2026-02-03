@@ -23,7 +23,7 @@ const client = new Client({
   ]
 });
 
-const BOT_OWNER_ID = 'YOUR_OWNER_DISCORD_ID_HERE'; // ← Replace with your Discord ID
+const BOT_OWNER_ID = '1298640383688970293'; // ← Replace with your own Discord user ID
 
 const DATA_FILE = './data.json';
 let data = {
@@ -260,10 +260,17 @@ client.on('messageCreate', async message => {
     return;
   }
 
-  // Require shazam setup for ticket/index commands
+  // Ticket commands require ticket mode
   if (['ticket1', 'index'].includes(cmd)) {
-    if (!isRedeemed(userId)) return;
-    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
+    if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
+    if (!hasTicketMode(userId)) return message.reply('Ticket mode not activated. Redeem a key and reply **1**.');
+    if (!setup.middlemanRole) return message.reply('Run $shazam first to setup the bot.');
+  }
+
+  // Middleman commands require middleman mode
+  if (['schior', 'mmfee', 'mminfo'].includes(cmd)) {
+    if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
+    if (!hasMiddlemanMode(userId)) return message.reply('Middleman mode not activated. Redeem a key and reply **2**.');
     if (!setup.middlemanRole) return message.reply('Run $shazam first to setup the bot.');
   }
 
@@ -324,10 +331,10 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // Shazam setup - verification link optional
+  // Shazam setup
   if (cmd === 'shazam') {
-    if (!isRedeemed(userId)) return;
-    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
+    if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
+    if (!hasTicketMode(userId)) return message.reply('Ticket mode required (reply **1** after redeem).');
 
     await message.reply('**Setup started.** Answer questions. "cancel" to stop.');
 
@@ -391,7 +398,7 @@ client.on('messageCreate', async message => {
     message.channel.send('**Setup complete!** Use $ticket1 or $index.');
   }
 
-  // Ticket commands - restricted to middlemen only
+  // Ticket commands inside ticket channel - only middlemen
   const ticket = data.tickets[message.channel.id];
   if (ticket) {
     const isMM = message.member.roles.cache.has(setup.middlemanRole);
@@ -427,10 +434,33 @@ client.on('messageCreate', async message => {
 
     if (cmd === 'close') {
       if (!isClaimed && !isCo && !isOwner) return message.reply('Only claimer, co-owner or bot owner can close.');
+
       const msgs = await message.channel.messages.fetch({ limit: 100 });
-      const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[Media]'}`).join('\n');
+      const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString('en-GB', { timeZone: 'Europe/London' })}] ${m.author.tag}: ${m.content || '[Media/Embed]'}`).join('\n');
+
       const chan = message.guild.channels.cache.get(setup.transcriptsChannel);
-      if (chan) await chan.send(`**Transcript: ${message.channel.name}**\n\`\`\`\n${transcript.slice(0, 1900)}\n\`\`\``);
+      if (chan) {
+        const transcriptEmbed = new EmbedBuilder()
+          .setColor(0x2f3136)
+          .setTitle(`Transcript: ${message.channel.name}`)
+          .setDescription(
+            `**Created by:** <@${ticket.opener}>\n` +
+            `**Claimed by:** ${ticket.claimedBy ? `<@${ticket.claimedBy}>` : 'Nobody'}\n` +
+            `**Closed by:** <@${message.author.id}>\n` +
+            `**Date:** ${new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'full', timeStyle: 'short' })}`
+          )
+          .setFooter({ text: 'Roblox Trading Core • Middleman Logs' })
+          .setTimestamp();
+
+        await chan.send({
+          embeds: [transcriptEmbed],
+          files: [{
+            attachment: Buffer.from(transcript, 'utf-8'),
+            name: `${message.channel.name}-transcript.txt`
+          }]
+        });
+      }
+
       await message.reply('Closing ticket...');
       await message.channel.delete();
     }
@@ -543,7 +573,7 @@ client.on('interactionCreate', async interaction => {
       await interaction.reply({ content: `**${interaction.user} was not interested**, we will be kicking you in 1 hour.\nIf you change your mind, click **Join Us**!`, ephemeral: false });
     }
 
-    // Claim / Unclaim / Close - restricted unclaim
+    // Claim
     if (interaction.customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
       if (!interaction.member.roles.cache.has(setup.middlemanRole)) return interaction.reply({ content: 'Only middlemen can claim.', ephemeral: true });
@@ -563,6 +593,7 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
+    // Unclaim - only claimer or bot owner
     if (interaction.customId === 'unclaim_ticket') {
       const isOwner = interaction.user.id === BOT_OWNER_ID;
       if (!ticket.claimedBy) return interaction.reply({ content: 'Not claimed.', ephemeral: true });
@@ -585,6 +616,7 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
+    // Close
     if (interaction.customId === 'close_ticket') {
       const isOwner = interaction.user.id === BOT_OWNER_ID;
       if (!ticket.claimedBy && !interaction.member.roles.cache.has(setup.coOwnerRole) && !isOwner) {
@@ -592,10 +624,29 @@ client.on('interactionCreate', async interaction => {
       }
 
       const msgs = await interaction.channel.messages.fetch({ limit: 100 });
-      const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[Media]'}`).join('\n');
+      const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString('en-GB', { timeZone: 'Europe/London' })}] ${m.author.tag}: ${m.content || '[Media/Embed]'}`).join('\n');
+
       const chan = interaction.guild.channels.cache.get(setup.transcriptsChannel);
       if (chan) {
-        await chan.send(`**Transcript: ${interaction.channel.name}**\n\`\`\`\n${transcript.slice(0, 1900)}\n\`\`\``);
+        const transcriptEmbed = new EmbedBuilder()
+          .setColor(0x2f3136)
+          .setTitle(`Transcript: ${interaction.channel.name}`)
+          .setDescription(
+            `**Created by:** <@${ticket.opener}>\n` +
+            `**Claimed by:** ${ticket.claimedBy ? `<@${ticket.claimedBy}>` : 'Nobody'}\n` +
+            `**Closed by:** <@${interaction.user.id}>\n` +
+            `**Date:** ${new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'full', timeStyle: 'short' })}`
+          )
+          .setFooter({ text: 'Roblox Trading Core • Middleman Logs' })
+          .setTimestamp();
+
+        await chan.send({
+          embeds: [transcriptEmbed],
+          files: [{
+            attachment: Buffer.from(transcript, 'utf-8'),
+            name: `${interaction.channel.name}-transcript.txt`
+          }]
+        });
       }
 
       await interaction.reply('Closing ticket...');
@@ -673,7 +724,7 @@ client.on('interactionCreate', async interaction => {
               `• If ticket is unattended for 1 hour it will be closed.`
         );
 
-      // Add ticket details (this was missing in some versions)
+      // Add ticket details
       if (isIndex) {
         welcomeEmbed.addFields(
           { name: 'What are you trying to index?', value: interaction.fields.getTextInputValue('index_item') || 'Not provided' },
