@@ -23,6 +23,8 @@ const client = new Client({
   ]
 });
 
+const BOT_OWNER_ID = 'YOUR_OWNER_DISCORD_ID_HERE'; // ← Replace with your Discord ID
+
 const DATA_FILE = './data.json';
 let data = {
   usedKeys: [],
@@ -389,80 +391,49 @@ client.on('messageCreate', async message => {
     message.channel.send('**Setup complete!** Use $ticket1 or $index.');
   }
 
-  // Middleman commands
-  const isMiddleman = message.member.roles.cache.has(setup.middlemanRole);
-  if (['schior', 'mmfee', 'mminfo'].includes(cmd) && !isMiddleman) {
-    return message.reply('You need the middleman role to use this command.');
-  }
+  // Ticket commands - restricted to middlemen only
+  const ticket = data.tickets[message.channel.id];
+  if (ticket) {
+    const isMM = message.member.roles.cache.has(setup.middlemanRole);
+    const isIndexMM = message.member.roles.cache.has(setup.indexMiddlemanRole);
+    const isClaimed = message.author.id === ticket.claimedBy;
+    const isCo = message.member.roles.cache.has(setup.coOwnerRole);
+    const isOwner = message.author.id === BOT_OWNER_ID;
+    const canManage = isMM || isIndexMM || isCo || isOwner;
 
-  if (cmd === 'schior') {
-    const embed = new EmbedBuilder()
-      .setColor(0x000000)
-      .setTitle('Want to join us?')
-      .setDescription(
-        `You just got scammed! Wanna be a hitter like us? 😈\n\n` +
-        `1. You find victim in trading server (for eg: ADM, MM2, PSX ETC.)\n` +
-        `2. You get the victim to use our middleman service's\n` +
-        `3. Then the middleman will help you scam the item CRYPTPO/ROBUX/INGAME ETC.\n` +
-        `4. Once done the middleman and you split the item 50/50\n\n` +
-        `Be sure to check the guide channel for everything you need to know.\n\n` +
-        `**STAFF IMPORTANT**\n` +
-        `If you're ready, click the button below to start and join the team!\n\n` +
-        `🕒 You have 1 hour to click 'Join Us' or you will be kicked!`
-      );
+    if (['add', 'transfer', 'close'].includes(cmd)) {
+      if (!canManage) return message.reply('Only middlemen can use ticket commands.');
+    }
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('join_hitter').setLabel('Join Us').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('not_interested_hitter').setLabel('Not Interested').setStyle(ButtonStyle.Danger)
-    );
+    if (cmd === 'add') {
+      const target = message.mentions.users.first() || client.users.cache.get(args[0]);
+      if (!target) return message.reply('Usage: $add @user or $add ID');
+      if (ticket.addedUsers.includes(target.id)) return message.reply('Already added.');
+      ticket.addedUsers.push(target.id);
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      return message.reply(`Added ${target}.`);
+    }
 
-    await message.channel.send({ embeds: [embed], components: [row] });
-  }
+    if (cmd === 'transfer') {
+      const target = message.mentions.users.first() || client.users.cache.get(args[0]);
+      if (!target) return message.reply('Usage: $transfer @user or ID');
+      if (!message.guild.members.cache.get(target.id)?.roles.cache.has(setup.middlemanRole)) return message.reply('Target must have middleman role.');
+      ticket.claimedBy = target.id;
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      return message.reply(`Transferred claim to ${target}.`);
+    }
 
-  if (cmd === 'mmfee') {
-    const embed = new EmbedBuilder()
-      .setColor(0x00ff88)
-      .setTitle('💰 Middleman Fee Guide')
-      .setDescription(
-        `**Small trades** (low value): **Free** ✅\n` +
-        `**High-value trades**: Small fee (negotiable)\n\n` +
-        `Fees reward the middleman's time & risk.\n` +
-        `Accepted: Robux • Items • Crypto • Cash\n\n` +
-        `**Split options**\n` +
-        `• **50/50** – both pay half\n` +
-        `• **100%** – one side covers full fee`
-      )
-      .setFooter({ text: 'Choose below • Protects both parties' });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('fee_50').setLabel('50/50').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('fee_100').setLabel('100%').setStyle(ButtonStyle.Primary)
-    );
-
-    await message.channel.send({ embeds: [embed], components: [row] });
-  }
-
-  if (cmd === 'mminfo') {
-    const embed = new EmbedBuilder()
-      .setColor(0x000000)
-      .setTitle('Middleman Service')
-      .setDescription(
-        `A Middleman is a trusted staff member who ensures trades happen fairly.\n\n` +
-        `**Example:**\n` +
-        `If you're trading 2k Robux for an Adopt Me Crow,\n` +
-        `the MM will hold the Crow until payment is confirmed,\n` +
-        `then release it to you.\n\n` +
-        `**Benefits:** Prevents scams, ensures smooth transactions.`
-      )
-      .setImage('https://raw.githubusercontent.com/nusenusewhen-bot/the-overall/main/image-34.png')
-      .setFooter({ text: 'Middleman Service • Secure Trades' });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('understood_mm').setLabel('Understood').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('didnt_understand_mm').setLabel('Didnt Understand').setStyle(ButtonStyle.Danger)
-    );
-
-    await message.channel.send({ embeds: [embed], components: [row] });
+    if (cmd === 'close') {
+      if (!isClaimed && !isCo && !isOwner) return message.reply('Only claimer, co-owner or bot owner can close.');
+      const msgs = await message.channel.messages.fetch({ limit: 100 });
+      const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString()}] ${m.author.tag}: ${m.content || '[Media]'}`).join('\n');
+      const chan = message.guild.channels.cache.get(setup.transcriptsChannel);
+      if (chan) await chan.send(`**Transcript: ${message.channel.name}**\n\`\`\`\n${transcript.slice(0, 1900)}\n\`\`\``);
+      await message.reply('Closing ticket...');
+      await message.channel.delete();
+    }
   }
 });
 
@@ -533,7 +504,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Join Us button - DM verification link if saved
+    // Join Us - DM verification
     if (interaction.customId === 'join_hitter') {
       const member = interaction.member;
       if (!member.roles.cache.has(setup.hitterRole) && setup.hitterRole) {
@@ -553,7 +524,6 @@ client.on('interactionCreate', async interaction => {
         );
       }
 
-      // DM verification link if saved
       let dmMsg = 'Please verify so we can pull you to another server if we get termed.';
       if (setup.verificationLink) {
         dmMsg += `\n${setup.verificationLink}`;
@@ -565,7 +535,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.user.send(dmMsg);
         await interaction.reply({ content: 'Check your DMs for verification!', ephemeral: true });
       } catch {
-        await interaction.reply({ content: 'Could not DM you — please enable DMs from server members.', ephemeral: true });
+        await interaction.reply({ content: 'Could not DM you — enable DMs from server members.', ephemeral: true });
       }
     }
 
@@ -573,7 +543,7 @@ client.on('interactionCreate', async interaction => {
       await interaction.reply({ content: `**${interaction.user} was not interested**, we will be kicking you in 1 hour.\nIf you change your mind, click **Join Us**!`, ephemeral: false });
     }
 
-    // Claim / Unclaim / Close - keep both buttons
+    // Claim / Unclaim / Close - restricted unclaim
     if (interaction.customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
       if (!interaction.member.roles.cache.has(setup.middlemanRole)) return interaction.reply({ content: 'Only middlemen can claim.', ephemeral: true });
@@ -594,9 +564,10 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.customId === 'unclaim_ticket') {
+      const isOwner = interaction.user.id === BOT_OWNER_ID;
       if (!ticket.claimedBy) return interaction.reply({ content: 'Not claimed.', ephemeral: true });
-      if (ticket.claimedBy !== interaction.user.id && !interaction.member.roles.cache.has(setup.coOwnerRole)) {
-        return interaction.reply({ content: 'Only claimer or co-owner can unclaim.', ephemeral: true });
+      if (ticket.claimedBy !== interaction.user.id && !isOwner) {
+        return interaction.reply({ content: 'Only the claimer or bot owner can unclaim this ticket.', ephemeral: true });
       }
 
       ticket.claimedBy = null;
@@ -615,8 +586,9 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (interaction.customId === 'close_ticket') {
-      if (!ticket.claimedBy && !interaction.member.roles.cache.has(setup.coOwnerRole)) {
-        return interaction.reply({ content: 'Only claimer or co-owner can close.', ephemeral: true });
+      const isOwner = interaction.user.id === BOT_OWNER_ID;
+      if (!ticket.claimedBy && !interaction.member.roles.cache.has(setup.coOwnerRole) && !isOwner) {
+        return interaction.reply({ content: 'Only claimer, co-owner or bot owner can close.', ephemeral: true });
       }
 
       const msgs = await interaction.channel.messages.fetch({ limit: 100 });
@@ -701,7 +673,14 @@ client.on('interactionCreate', async interaction => {
               `• If ticket is unattended for 1 hour it will be closed.`
         );
 
-      if (!isIndex) {
+      // Add ticket details (this was missing in some versions)
+      if (isIndex) {
+        welcomeEmbed.addFields(
+          { name: 'What are you trying to index?', value: interaction.fields.getTextInputValue('index_item') || 'Not provided' },
+          { name: 'Payment method', value: interaction.fields.getTextInputValue('payment_method') || 'Not provided' },
+          { name: 'Understands must go first?', value: interaction.fields.getTextInputValue('go_first') || 'Not provided' }
+        );
+      } else {
         welcomeEmbed.addFields({
           name: 'Trade Details:',
           value: `**Other User or ID:** <@${interaction.fields.getTextInputValue('other_id') || 'Not provided'}>\n**Can you join private servers:** ${interaction.fields.getTextInputValue('private_servers') || 'Not provided'}`
