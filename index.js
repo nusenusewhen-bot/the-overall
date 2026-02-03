@@ -99,7 +99,6 @@ async function updateTicketPerms(channel, ticket, setup) {
       ReadMessageHistory: true
     });
 
-    // Use indexMiddlemanRole for indexing tickets (from $index)
     const middlemanRole = ticket.isIndexTicket ? setup.indexMiddlemanRole : setup.middlemanRole;
 
     if (middlemanRole) {
@@ -262,7 +261,7 @@ client.on('messageCreate', async message => {
     return;
   }
 
-  // Shazam setup - only redeemed
+  // Shazam setup
   if (cmd === 'shazam') {
     if (!isRedeemed(userId)) return;
     if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
@@ -278,7 +277,7 @@ client.on('messageCreate', async message => {
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.middlemanRole = ans;
 
-    ans = await askQuestion(message.channel, userId, 'Index Middleman role ID (numbers - who sees $index tickets):', a => /^\d+$/.test(a));
+    ans = await askQuestion(message.channel, userId, 'Index Middleman role ID (numbers - who sees indexing tickets):', a => /^\d+$/.test(a));
     if (ans && !ans.toLowerCase().includes('cancel')) {
       setup.indexMiddlemanRole = ans;
       saveData();
@@ -315,42 +314,31 @@ client.on('messageCreate', async message => {
     message.channel.send('**Setup complete!** Use $ticket1 or $index.');
   }
 
-  // Ticket panel & Index panel - only redeemed
-  if (cmd === 'ticket1' || cmd === 'index') {
+  // Ticket panel
+  if (cmd === 'ticket1') {
     if (!isRedeemed(userId)) return;
     if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
 
-    const isIndex = cmd === 'index';
-
     const embed = new EmbedBuilder()
-      .setColor(0x000000)
-      .setTitle(isIndex ? 'Indexing Services' : 'Middleman Ticket')
+      .setColor(0x0088ff)
       .setDescription(
-        isIndex
-          ? `• Open this ticket if you would like a Indexing service to help finish your index and complete your base.\n\n` +
-            `• You're going to have to pay first before we let you start indexing.\n\n` +
-            `**When opening a ticket:**\n` +
-            `• Wait for a <@&${setup.indexMiddlemanRole || setup.middlemanRole || 'No index middleman role'}> to answer your ticket.\n` +
-            `• Be nice and kind to the staff and be patient.\n` +
-            `• State your roblox username on the account you want to complete the index in.\n\n` +
-            `If not following so your ticket will be deleted and you will be timed out for 1 hour 🤝`
-          : `Found a trade and would like to ensure a safe trading experience?\n\n` +
-            `**Open a ticket below**\n\n` +
-            `**What we provide**\n` +
-            `• We provide safe traders between 2 parties\n` +
-            `• We provide fast and easy deals\n\n` +
-            `**Important notes**\n` +
-            `• Both parties must agree before opening a ticket\n` +
-            `• Fake/Troll tickets will result into a ban or ticket blacklist\n` +
-            `• Follow discord Terms of service and server guidelines`
+        `Found a trade and would like to ensure a safe trading experience?\n\n` +
+        `**Open a ticket below**\n\n` +
+        `**What we provide**\n` +
+        `• We provide safe traders between 2 parties\n` +
+        `• We provide fast and easy deals\n\n` +
+        `**Important notes**\n` +
+        `• Both parties must agree before opening a ticket\n` +
+        `• Fake/Troll tickets will result into a ban or ticket blacklist\n` +
+        `• Follow discord Terms of service and server guidelines`
       )
       .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
-      .setFooter({ text: isIndex ? 'Indexing Service' : 'Safe Trading Server' });
+      .setFooter({ text: 'Safe Trading Server' });
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('request_ticket')
-        .setLabel(isIndex ? 'Request Index' : 'Request')
+        .setLabel('Request')
         .setStyle(ButtonStyle.Primary)
         .setEmoji('📩')
     );
@@ -358,78 +346,32 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // Middleman commands
-  const isMiddleman = message.member.roles.cache.has(setup.middlemanRole);
-  if (['schior', 'mmfee', 'confirm'].includes(cmd) && !isMiddleman) {
-    console.log(`Ignored ${cmd} from ${message.author.tag} - no middleman role`);
-    return;
-  }
+  // Index panel
+  if (cmd === 'index') {
+    if (!isRedeemed(userId)) return;
+    if (!hasTicketMode(userId)) return message.reply('Ticket mode required.');
 
-  if (cmd === 'schior') {
     const embed = new EmbedBuilder()
       .setColor(0x000000)
-      .setTitle('Want to join us?')
+      .setTitle('Indexing Services')
       .setDescription(
-        `You just got scammed! Wanna be a hitter like us? 😈\n\n` +
-        `1. You find victim in trading server (for eg: ADM, MM2, PSX ETC.)\n` +
-        `2. You get the victim to use our middleman service's\n` +
-        `3. Then the middleman will help you scam the item CRYPTPO/ROBUX/INGAME ETC.\n` +
-        `4. Once done the middleman and you split the item 50/50\n\n` +
-        `Be sure to check the guide channel for everything you need to know.\n\n` +
-        `**STAFF IMPORTANT**\n` +
-        `If you're ready, click the button below to start and join the team!\n\n` +
-        `🕒 You have 1 hour to click 'Join Us' or you will be kicked!`
-      );
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('join_hitter').setLabel('Join Us').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('not_interested_hitter').setLabel('Not Interested').setStyle(ButtonStyle.Danger)
-    );
-
-    await message.channel.send({ embeds: [embed], components: [row] });
-  }
-
-  if (cmd === 'mmfee') {
-    const embed = new EmbedBuilder()
-      .setColor(0x00ff88)
-      .setTitle('💰 Middleman Fee Guide')
-      .setDescription(
-        `**Small trades** (low value): **Free** ✅\n` +
-        `**High-value trades**: Small fee (negotiable)\n\n` +
-        `Fees reward the middleman's time & risk.\n` +
-        `Accepted: Robux • Items • Crypto • Cash\n\n` +
-        `**Split options**\n` +
-        `• **50/50** – both pay half\n` +
-        `• **100%** – one side covers full fee`
+        `• Open this ticket if you would like a Indexing service to help finish your index and complete your base.\n\n` +
+        `• You're going to have to pay first before we let you start indexing.\n\n` +
+        `**When opening a ticket:**\n` +
+        `• Wait for a <@&${setup.indexMiddlemanRole || setup.middlemanRole || 'No index middleman role'}> to answer your ticket.\n` +
+        `• Be nice and kind to the staff and be patient.\n` +
+        `• State your roblox username on the account you want to complete the index in.\n\n` +
+        `If not following so your ticket will be deleted and you will be timed out for 1 hour 🤝`
       )
-      .setFooter({ text: 'Choose below • Protects both parties' });
+      .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
+      .setFooter({ text: 'Indexing Service' });
 
     const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('fee_50').setLabel('50/50').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('fee_100').setLabel('100%').setStyle(ButtonStyle.Primary)
-    );
-
-    await message.channel.send({ embeds: [embed], components: [row] });
-  }
-
-  if (cmd === 'mminfo') {
-    const embed = new EmbedBuilder()
-      .setColor(0x000000)
-      .setTitle('Middleman Service')
-      .setDescription(
-        `A Middleman is a trusted staff member who ensures trades happen fairly.\n\n` +
-        `**Example:**\n` +
-        `If you're trading 2k Robux for an Adopt Me Crow,\n` +
-        `the MM will hold the Crow until payment is confirmed,\n` +
-        `then release it to you.\n\n` +
-        `**Benefits:** Prevents scams, ensures smooth transactions.`
-      )
-      .setImage('https://raw.githubusercontent.com/nusenusewhen-bot/the-overall/main/image-34.png')
-      .setFooter({ text: 'Middleman Service • Secure Trades' });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('understood_mm').setLabel('Understood').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('didnt_understand_mm').setLabel('Didnt Understand').setStyle(ButtonStyle.Danger)
+      new ButtonBuilder()
+        .setCustomId('request_index')
+        .setLabel('Request Index')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('📩')
     );
 
     await message.channel.send({ embeds: [embed], components: [row] });
@@ -439,12 +381,13 @@ client.on('messageCreate', async message => {
   const ticket = data.tickets[message.channel.id];
   if (ticket) {
     const isMM = message.member.roles.cache.has(setup.middlemanRole);
+    const isIndexMM = message.member.roles.cache.has(setup.indexMiddlemanRole);
     const isClaimed = message.author.id === ticket.claimedBy;
     const isCo = message.member.roles.cache.has(setup.coOwnerRole);
-    const canManage = isMM || isClaimed || isCo;
+    const canManage = isMM || isIndexMM || isClaimed || isCo;
 
     if (cmd === 'add') {
-      if (!canManage) return message.reply('Only middlemen, claimer or co-owners can add users.');
+      if (!canManage) return message.reply('Only middlemen, index middlemen, claimer or co-owners can add users.');
       const target = message.mentions.users.first() || client.users.cache.get(args[0]);
       if (!target) return message.reply('Usage: $add @user or $add ID');
       if (ticket.addedUsers.includes(target.id)) return message.reply('Already added.');
@@ -455,7 +398,7 @@ client.on('messageCreate', async message => {
     }
 
     if (cmd === 'transfer') {
-      if (!canManage) return message.reply('Only middlemen, claimer or co-owners can transfer.');
+      if (!canManage) return message.reply('Only middlemen, index middlemen, claimer or co-owners can transfer.');
       const target = message.mentions.users.first() || client.users.cache.get(args[0]);
       if (!target) return message.reply('Usage: $transfer @user or ID');
       if (!message.guild.members.cache.get(target.id)?.roles.cache.has(setup.middlemanRole)) return message.reply('Target must have middleman role.');
@@ -484,34 +427,61 @@ client.on('interactionCreate', async interaction => {
   const ticket = data.tickets[interaction.channel?.id];
 
   if (interaction.isButton()) {
-    if (interaction.customId === 'request_ticket') {
+    if (interaction.customId === 'request_ticket' || interaction.customId === 'request_index') {
+      const isIndex = interaction.customId === 'request_index';
       const modal = new ModalBuilder()
-        .setCustomId('ticket_modal')
-        .setTitle('Trade Ticket Form');
+        .setCustomId(isIndex ? 'index_modal' : 'ticket_modal')
+        .setTitle(isIndex ? 'Request Indexing Service' : 'Trade Ticket Form');
 
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('other_id')
-            .setLabel("Other person's ID / username?")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('trade_desc')
-            .setLabel('Describe the trade')
-            .setStyle(TextInputStyle.Paragraph)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('private_servers')
-            .setLabel('Can both join private servers?')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false)
-        )
-      );
+      if (isIndex) {
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('index_item')
+              .setLabel('What are you trying to index?')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('payment_method')
+              .setLabel('What is your payment method?')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('go_first')
+              .setLabel('You understand you must go first?')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          )
+        );
+      } else {
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('other_id')
+              .setLabel("Other person's ID / username?")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('trade_desc')
+              .setLabel('Describe the trade')
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('private_servers')
+              .setLabel('Can both join private servers?')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(false)
+          )
+        );
+      }
 
       await interaction.showModal(modal);
       return;
@@ -592,20 +562,16 @@ client.on('interactionCreate', async interaction => {
     }
   }
 
-  if (interaction.isModalSubmit() && interaction.customId === 'ticket_modal') {
+  if (interaction.isModalSubmit()) {
     await interaction.deferReply({ ephemeral: true });
 
-    const otherId = interaction.fields.getTextInputValue('other_id') || 'Not provided';
-    const tradeDesc = interaction.fields.getTextInputValue('trade_desc') || 'Not provided';
-    const privateServers = interaction.fields.getTextInputValue('private_servers') || 'Not provided';
+    const isIndex = interaction.customId === 'index_modal';
+    const middlemanRole = isIndex ? setup.indexMiddlemanRole : setup.middlemanRole;
 
     const overwrites = [
       { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
       { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
     ];
-
-    // Use indexMiddlemanRole for indexing tickets
-    const middlemanRole = ticket?.isIndexTicket ? setup.indexMiddlemanRole : setup.middlemanRole;
 
     if (middlemanRole) {
       overwrites.push({
@@ -624,29 +590,38 @@ client.on('interactionCreate', async interaction => {
 
     try {
       const channel = await interaction.guild.channels.create({
-        name: `ticket-${interaction.user.username.toLowerCase()}`,
+        name: `${isIndex ? 'index' : 'ticket'}-${interaction.user.username.toLowerCase()}`,
         type: ChannelType.GuildText,
         parent: null,
         permissionOverwrites: overwrites
       });
 
-      data.tickets[channel.id] = { opener: interaction.user.id, claimedBy: null, addedUsers: [], confirmVotes: {}, feeVotes: {}, isIndexTicket: false };
+      data.tickets[channel.id] = { opener: interaction.user.id, claimedBy: null, addedUsers: [], confirmVotes: {}, feeVotes: {}, isIndexTicket: isIndex };
       saveData();
 
       const welcomeEmbed = new EmbedBuilder()
         .setColor(0x0088ff)
-        .setTitle('Welcome to your Ticket!')
+        .setTitle(isIndex ? 'Index Requesting' : 'Welcome to your Ticket!')
         .setDescription(
-          `Hello **${interaction.user}**, thanks for opening a Middleman Ticket!\n\n` +
-          `A staff member will assist you shortly.\n` +
-          `Provide all trade details clearly.\n` +
-          `**Fake/troll tickets will result in consequences.**\n\n` +
-          `• If ticket is unattended for 1 hour it will be closed.`
-        )
-        .addFields({
+          isIndex
+            ? `Hello! A <@&${middlemanRole || 'No middleman role'}> will reply to you soon.\n\n` +
+              `**Read our rules before proceeding with the ticket**\n` +
+              `• Be patient, we will eventually respond to you.\n` +
+              `• Get your payment ready and turn off your Do Not Disturb so we can contact you when we're ready\n` +
+              `• Do not waste time or you will be muted for 1 day.`
+            : `Hello **${interaction.user}**, thanks for opening a Middleman Ticket!\n\n` +
+              `A staff member will assist you shortly.\n` +
+              `Provide all trade details clearly.\n` +
+              `**Fake/troll tickets will result in consequences.**\n\n` +
+              `• If ticket is unattended for 1 hour it will be closed.`
+        );
+
+      if (!isIndex) {
+        welcomeEmbed.addFields({
           name: 'Trade Details:',
-          value: `**Other User or ID:** <@${otherId}>\n**Can you join private servers:** ${privateServers}`
+          value: `**Other User or ID:** <@${interaction.fields.getTextInputValue('other_id') || 'Not provided'}>\n**Can you join private servers:** ${interaction.fields.getTextInputValue('private_servers') || 'Not provided'}`
         });
+      }
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
@@ -654,7 +629,7 @@ client.on('interactionCreate', async interaction => {
       );
 
       await channel.send({
-        content: `<@&${middlemanRole || 'No middleman role'}> New ticket!`,
+        content: `<@&${middlemanRole || 'No middleman role'}> New ${isIndex ? 'index' : 'ticket'}!`,
         embeds: [welcomeEmbed],
         components: [row]
       });
