@@ -23,7 +23,7 @@ const client = new Client({
   ]
 });
 
-const BOT_OWNER_ID = 'YOUR_OWNER_ID_HERE'; // ← Replace with your Discord ID
+const BOT_OWNER_ID = '1298640383688970293'; // ← Replace with your Discord ID
 
 const DATA_FILE = './data.json';
 let data = {
@@ -102,7 +102,7 @@ async function updateTicketPerms(channel, ticket, setup) {
     });
 
     if (ticket.isSellerTicket || ticket.isShopTicket) {
-      // Seller & Shop tickets → only co-owner
+      // Seller & Shop → only co-owner
       if (setup.coOwnerRole) {
         await channel.permissionOverwrites.edit(setup.coOwnerRole, {
           ViewChannel: true,
@@ -164,7 +164,7 @@ client.on('messageCreate', async message => {
 
   if (!data.userModes[userId]) data.userModes[userId] = { ticket: false, middleman: false };
 
-  // AFK remove & ping block (unchanged)
+  // AFK remove & ping block
   if (data.afk[userId]) {
     delete data.afk[userId];
     saveData();
@@ -270,17 +270,84 @@ client.on('messageCreate', async message => {
     return;
   }
 
-  // Mode checks
+  // Mode checks for ticket commands
   if (['ticket1', 'index', 'seller', 'shop'].includes(cmd)) {
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
     if (!hasTicketMode(userId)) return message.reply('Ticket mode not activated. Redeem a key and reply **1**.');
     if (!setup.middlemanRole) return message.reply('Run $shazam first to setup the bot.');
   }
 
+  // Middleman commands - role check only (no mode required anymore)
   if (['schior', 'mmfee', 'mminfo'].includes(cmd)) {
-    if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
-    if (!hasMiddlemanMode(userId)) return message.reply('Middleman mode not activated. Redeem a key and reply **2**.');
     if (!setup.middlemanRole) return message.reply('Run $shazam first to setup the bot.');
+    if (!message.member.roles.cache.has(setup.middlemanRole)) return message.reply('You need the middleman role to use this command.');
+  }
+
+  // $help command
+  if (cmd === 'help') {
+    const embed = new EmbedBuilder()
+      .setColor(0x0099ff)
+      .setTitle('Bot Commands')
+      .setDescription('Prefix: $')
+      .addFields(
+        {
+          name: 'Middleman Role Commands',
+          value: 
+            '`$schior` - Post hitter recruitment embed\n' +
+            '`$mmfee` - Show fee options with buttons\n' +
+            '`$mminfo` - Show middleman info embed'
+        },
+        {
+          name: 'Ticket Bot Commands',
+          value: 
+            '`$ticket1` - Open normal trade ticket panel\n' +
+            '`$index` - Open indexing service panel\n' +
+            '`$seller` - Open role purchase ticket panel\n' +
+            '`$shop` - Open shop purchase ticket panel\n\n' +
+            '**Inside tickets:**\n' +
+            '`$add @user` - Add user\n' +
+            '`$transfer @user` - Transfer claim\n' +
+            '`$close` - Close ticket'
+        },
+        {
+          name: 'General Commands',
+          value: 
+            '`$afk <reason>` - Set AFK status\n' +
+            '`$help` - Show this help menu'
+        },
+        {
+          name: 'Owner Commands',
+          value: 
+            '`$dm all <message>` - DM everyone in the server'
+        }
+      )
+      .setFooter({ text: 'Use responsibly • Redeem key to unlock' });
+
+    return message.channel.send({ embeds: [embed] });
+  }
+
+  // Owner only - $dm all
+  if (cmd === 'dm all') {
+    if (message.author.id !== BOT_OWNER_ID) return message.reply('Owner only command.');
+    if (!args.length) return message.reply('Usage: $dm all <message>');
+
+    const msg = args.join(' ');
+    let count = 0;
+    const failed = [];
+
+    await message.guild.members.fetch();
+    for (const member of message.guild.members.cache.values()) {
+      if (member.user.bot) continue;
+      try {
+        await member.send(msg);
+        count++;
+        await new Promise(r => setTimeout(r, 1000)); // rate limit
+      } catch {
+        failed.push(member.user.tag);
+      }
+    }
+
+    return message.reply(`DM sent to ${count} users.\nFailed: ${failed.length ? failed.join(', ') : 'None'}`);
   }
 
   // Normal ticket panel
@@ -340,7 +407,7 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // Seller panel (previous one)
+  // Seller panel
   if (cmd === 'seller') {
     const embed = new EmbedBuilder()
       .setColor(0x00ff88)
@@ -362,10 +429,10 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // NEW: $shop command
+  // Shop panel
   if (cmd === 'shop') {
     const embed = new EmbedBuilder()
-      .setColor(0xffd700) // gold color for shop feel
+      .setColor(0xffd700)
       .setTitle('Welcome to my Shop')
       .setDescription(
         `@Welcome to my shop, if you are looking to buy something please make a ticket and wait patiently.\n\n` +
@@ -391,7 +458,7 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // Shazam setup (unchanged)
+  // Shazam setup
   if (cmd === 'shazam') {
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
     if (!hasTicketMode(userId)) return message.reply('Ticket mode required (reply **1** after redeem).');
@@ -431,7 +498,7 @@ client.on('messageCreate', async message => {
       saveData();
       message.reply(`Co-owner role saved: \`${ans}\``);
     } else {
-      message.reply('Skipped — seller/shop tickets will be visible to everyone.');
+      message.reply('Skipped — seller/shop tickets visible to everyone.');
     }
 
     ans = await askQuestion(message.channel, userId, 'Verification link (https://...) or "skip":');
@@ -460,7 +527,6 @@ client.on('messageCreate', async message => {
   }
 
   // Ticket channel commands
-  const ticket = data.tickets[message.channel.id];
   if (ticket) {
     const isMM = message.member.roles.cache.has(setup.middlemanRole);
     const isIndexMM = message.member.roles.cache.has(setup.indexMiddlemanRole);
@@ -535,7 +601,7 @@ client.on('interactionCreate', async interaction => {
   const ticket = data.tickets[interaction.channel?.id];
 
   if (interaction.isButton()) {
-    // Normal trade ticket
+    // Normal ticket
     if (interaction.customId === 'request_ticket') {
       const modal = new ModalBuilder()
         .setCustomId('ticket_modal')
@@ -603,7 +669,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Seller role ticket
+    // Seller ticket
     if (interaction.customId === 'request_seller') {
       const modal = new ModalBuilder()
         .setCustomId('seller_modal')
@@ -630,7 +696,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // New: Shop ticket
+    // Shop ticket
     if (interaction.customId === 'request_shop') {
       const modal = new ModalBuilder()
         .setCustomId('shop_modal')
@@ -664,7 +730,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Join Us (unchanged)
+    // Join Us
     if (interaction.customId === 'join_hitter') {
       const member = interaction.member;
       if (!member.roles.cache.has(setup.hitterRole) && setup.hitterRole) {
@@ -700,7 +766,7 @@ client.on('interactionCreate', async interaction => {
       await interaction.reply({ content: `**${interaction.user} was not interested**, we will be kicking you in 1 hour.\nIf you change your mind, click **Join Us**!`, ephemeral: false });
     }
 
-    // Claim / Unclaim / Close (unchanged)
+    // Claim / Unclaim / Close
     if (interaction.customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
       if (!interaction.member.roles.cache.has(setup.middlemanRole)) return interaction.reply({ content: 'Only middlemen can claim.', ephemeral: true });
@@ -808,7 +874,6 @@ client.on('interactionCreate', async interaction => {
       { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
     ];
 
-    // Shop & Seller tickets → only co-owner
     if (isSeller || isShop) {
       if (setup.coOwnerRole) {
         overwrites.push({
@@ -878,7 +943,7 @@ client.on('interactionCreate', async interaction => {
             )
         );
 
-      // Add form fields to embed
+      // Add form fields
       if (isShop) {
         welcomeEmbed.addFields(
           { name: 'Product', value: interaction.fields.getTextInputValue('product') || 'Not provided' },
