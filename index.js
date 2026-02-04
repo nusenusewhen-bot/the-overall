@@ -23,7 +23,7 @@ const client = new Client({
   ]
 });
 
-const BOT_OWNER_ID = '1298640383688970293'; // ← Replace with your Discord ID
+const BOT_OWNER_ID = '1298640383688970293'; // ← Replace with your real Discord ID
 
 const DATA_FILE = './data.json';
 let data = {
@@ -49,7 +49,7 @@ if (fs.existsSync(DATA_FILE)) {
     data.tickets = loaded.tickets || {};
     data.vouches = loaded.vouches || {};
     data.afk = loaded.afk || {};
-    console.log('[DATA] Loaded');
+    console.log('[DATA] Loaded existing data');
   } catch (err) {
     console.error('[DATA] Load failed:', err);
   }
@@ -59,6 +59,7 @@ function saveData() {
   try {
     const serial = { ...data, redeemedUsers: Array.from(data.redeemedUsers) };
     fs.writeFileSync(DATA_FILE, JSON.stringify(serial, null, 2));
+    console.log('[DATA] Saved');
   } catch (err) {
     console.error('[DATA] Save failed:', err);
   }
@@ -100,14 +101,23 @@ async function updateTicketPerms(channel, ticket, setup) {
       ReadMessageHistory: true
     });
 
-    const middlemanRole = ticket.isIndexTicket ? setup.indexMiddlemanRole : setup.middlemanRole;
-
-    if (middlemanRole) {
-      await channel.permissionOverwrites.edit(middlemanRole, {
-        ViewChannel: true,
-        ReadMessageHistory: true,
-        SendMessages: ticket.claimedBy ? false : true
-      });
+    if (ticket.isSellerTicket || ticket.isShopTicket) {
+      if (setup.coOwnerRole) {
+        await channel.permissionOverwrites.edit(setup.coOwnerRole, {
+          ViewChannel: true,
+          SendMessages: true,
+          ReadMessageHistory: true
+        });
+      }
+    } else {
+      const middlemanRole = ticket.isIndexTicket ? setup.indexMiddlemanRole : setup.middlemanRole;
+      if (middlemanRole) {
+        await channel.permissionOverwrites.edit(middlemanRole, {
+          ViewChannel: true,
+          ReadMessageHistory: true,
+          SendMessages: ticket.claimedBy ? false : true
+        });
+      }
     }
 
     if (ticket.claimedBy) {
@@ -139,7 +149,7 @@ async function updateTicketPerms(channel, ticket, setup) {
 }
 
 client.once('ready', () => {
-  console.log(`[READY] ${client.user.tag} online`);
+  console.log(`[READY] Logged in as ${client.user.tag}`);
 });
 
 client.on('messageCreate', async message => {
@@ -277,10 +287,17 @@ client.on('messageCreate', async message => {
 
   // Middleman commands - allow both middleman and index middleman roles
   if (['schior', 'mmfee', 'mminfo', 'vouches', 'vouch', 'setvouches'].includes(cmd)) {
-    if (!setup.middlemanRole && !setup.indexMiddlemanRole) return message.reply('Run $shazam or reply 2 after redeem to setup roles.');
-    const hasMMRole = message.member.roles.cache.has(setup.middlemanRole);
-    const hasIndexMMRole = message.member.roles.cache.has(setup.indexMiddlemanRole);
-    if (!hasMMRole && !hasIndexMMRole) return message.reply('You need the **middleman** or **index middleman** role to use this command.');
+    const mm = setup.middlemanRole ? String(setup.middlemanRole) : null;
+    const imm = setup.indexMiddlemanRole ? String(setup.indexMiddlemanRole) : null;
+
+    if (!mm && !imm) return message.reply('No middleman roles configured. Run $shazam.');
+
+    const hasMM = mm && message.member.roles.cache.has(mm);
+    const hasIMM = imm && message.member.roles.cache.has(imm);
+
+    if (!hasMM && !hasIMM) return message.reply('You need the middleman or index middleman role to use this command.');
+
+    // Command execution below...
   }
 
   // $help
@@ -291,40 +308,42 @@ client.on('messageCreate', async message => {
       .setDescription('Prefix: $')
       .addFields(
         {
-          name: 'Middleman Commands (requires middleman or index middleman role)',
+          name: 'Middleman Commands',
           value: 
-            '`$schior` → Post hitter recruitment embed\n' +
-            '`$mmfee` → Show fee options with buttons\n' +
-            '`$mminfo` → Show middleman info embed\n' +
-            '`$vouches [@user]` → Show vouches for user or self\n' +
-            '`$vouch @user` → Add vouch to user\n' +
-            '`$setvouches @user <number>` → Set vouch count for user'
+            '`$schior` — Post hitter recruitment embed\n' +
+            '`$mmfee` — Show fee options\n' +
+            '`$mminfo` — Show middleman info\n' +
+            '`$vouches [@user]` — Show vouches\n' +
+            '`$vouch @user` — Add vouch\n' +
+            '`$setvouches @user <number>` — Set vouches'
         },
         {
-          name: 'Ticket Commands (requires ticket mode)',
+          name: 'Ticket Commands',
           value: 
-            '`$ticket1` → Normal trade ticket panel\n' +
-            '`$index` → Indexing service panel\n' +
-            '`$seller` → Role purchase panel\n' +
-            '`$shop` → Shop purchase panel\n\n' +
-            '**Inside tickets:**\n' +
-            '`$add @user` → Add user\n' +
-            '`$transfer @user` → Transfer claim\n' +
-            '`$close` → Close ticket'
+            '`$ticket1` — Trade ticket panel\n' +
+            '`$index` — Indexing panel\n' +
+            '`$seller` — Role purchase panel\n' +
+            '`$shop` — Shop panel\n' +
+            '\nInside tickets:\n' +
+            '`$add @user` — Add user\n' +
+            '`$transfer @user` — Transfer claim\n' +
+            '`$claim` — Claim ticket\n' +
+            '`$unclaim` — Unclaim ticket\n' +
+            '`$close` — Close ticket'
         },
         {
-          name: 'General Commands',
+          name: 'General',
           value: 
-            '`$afk <reason>` → Set AFK status\n' +
-            '`$help` → This help menu'
+            '`$afk <reason>` — Set AFK\n' +
+            '`$help` — This menu'
         },
         {
-          name: 'Owner Commands',
+          name: 'Owner',
           value: 
-            '`$dm all <message>` → DM everyone in the server'
+            '`$dm all <message>` — Mass DM'
         }
       )
-      .setFooter({ text: 'Redeem key to unlock features' });
+      .setFooter({ text: 'Redeem key to use' });
 
     return message.channel.send({ embeds: [embed] });
   }
@@ -432,7 +451,7 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // $shop rewritten
+  // $shop - rewritten clean version
   if (cmd === 'shop') {
     const embed = new EmbedBuilder()
       .setColor(0xffd700)
@@ -537,15 +556,15 @@ client.on('messageCreate', async message => {
   // Ticket channel commands
   const ticket = data.tickets[message.channel.id];
   if (ticket) {
-    const isMM = message.member.roles.cache.has(setup.middlemanRole);
-    const isIndexMM = message.member.roles.cache.has(setup.indexMiddlemanRole);
+    const isMM = message.member.roles.cache.has(String(setup.middlemanRole || ''));
+    const isIndexMM = message.member.roles.cache.has(String(setup.indexMiddlemanRole || ''));
     const isClaimed = message.author.id === ticket.claimedBy;
-    const isCo = message.member.roles.cache.has(setup.coOwnerRole);
+    const isCo = message.member.roles.cache.has(String(setup.coOwnerRole || ''));
     const isOwner = message.author.id === BOT_OWNER_ID;
     const canManage = isMM || isIndexMM || isCo || isOwner;
 
-    if (['add', 'transfer', 'close'].includes(cmd)) {
-      if (!canManage) return message.reply('Only middlemen can use ticket commands.');
+    if (['add', 'transfer', 'close', 'claim', 'unclaim'].includes(cmd)) {
+      if (!canManage && cmd !== 'close') return message.reply('Only middlemen can use ticket commands.');
     }
 
     if (cmd === 'add') {
@@ -561,11 +580,30 @@ client.on('messageCreate', async message => {
     if (cmd === 'transfer') {
       const target = message.mentions.users.first() || client.users.cache.get(args[0]);
       if (!target) return message.reply('Usage: $transfer @user or ID');
-      if (!message.guild.members.cache.get(target.id)?.roles.cache.has(setup.middlemanRole)) return message.reply('Target must have middleman role.');
+      if (!message.guild.members.cache.get(target.id)?.roles.cache.has(String(setup.middlemanRole))) return message.reply('Target must have middleman role.');
       ticket.claimedBy = target.id;
       saveData();
       await updateTicketPerms(message.channel, ticket, setup);
       return message.reply(`Transferred claim to ${target}.`);
+    }
+
+    if (cmd === 'claim') {
+      if (ticket.claimedBy) return message.reply('Already claimed.');
+      if (!isMM && !isIndexMM) return message.reply('Only middlemen can claim.');
+      ticket.claimedBy = message.author.id;
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      return message.reply(`**Ticket claimed by ${message.author}**`);
+    }
+
+    if (cmd === 'unclaim') {
+      if (!ticket.claimedBy) return message.reply('Not claimed.');
+      const isOwner = message.author.id === BOT_OWNER_ID;
+      if (ticket.claimedBy !== message.author.id && !isOwner) return message.reply('Only claimer or bot owner can unclaim.');
+      ticket.claimedBy = null;
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      return message.reply(`**Ticket unclaimed**`);
     }
 
     if (cmd === 'close') {
@@ -737,7 +775,7 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.customId === 'join_hitter') {
       const member = interaction.member;
-      if (!member.roles.cache.has(setup.hitterRole) && setup.hitterRole) {
+      if (!member.roles.cache.has(String(setup.hitterRole || '')) && setup.hitterRole) {
         await member.roles.add(setup.hitterRole);
       }
 
@@ -772,7 +810,9 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
-      if (!interaction.member.roles.cache.has(setup.middlemanRole) && !interaction.member.roles.cache.has(setup.indexMiddlemanRole)) return interaction.reply({ content: 'Only middlemen or index middlemen can claim.', ephemeral: true });
+      if (!interaction.member.roles.cache.has(String(setup.middlemanRole || '')) && !interaction.member.roles.cache.has(String(setup.indexMiddlemanRole || ''))) {
+        return interaction.reply({ content: 'Only middlemen or index middlemen can claim.', ephemeral: true });
+      }
 
       ticket.claimedBy = interaction.user.id;
       saveData();
@@ -813,7 +853,7 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.customId === 'close_ticket') {
       const isOwner = interaction.user.id === BOT_OWNER_ID;
-      if (!ticket.claimedBy && !interaction.member.roles.cache.has(setup.coOwnerRole) && !isOwner) {
+      if (!ticket.claimedBy && !interaction.member.roles.cache.has(String(setup.coOwnerRole || '')) && !isOwner) {
         return interaction.reply({ content: 'Only claimer, co-owner or bot owner can close.', ephemeral: true });
       }
 
@@ -846,26 +886,10 @@ client.on('interactionCreate', async interaction => {
       await interaction.reply('Closing ticket...');
       await interaction.channel.delete();
     }
-
-    if (interaction.customId === 'understood_mm') {
-      await interaction.reply({ content: `**${interaction.user} Got it!** You're ready to use the middleman service.`, ephemeral: false });
-    }
-
-    if (interaction.customId === 'didnt_understand_mm') {
-      await interaction.reply({ content: `**${interaction.user}** No worries! Ask a staff member for help or read the guide channel.`, ephemeral: false });
-    }
-
-    if (interaction.customId === 'fee_50') {
-      await interaction.reply({ content: `**${interaction.user} chose 50/50 split**`, ephemeral: false });
-    }
-
-    if (interaction.customId === 'fee_100') {
-      await interaction.reply({ content: `**${interaction.user} chose 100% fee**`, ephemeral: false });
-    }
   }
 
   if (interaction.isModalSubmit()) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
     const isIndex = interaction.customId === 'index_modal';
     const isSeller = interaction.customId === 'seller_modal';
@@ -905,7 +929,7 @@ client.on('interactionCreate', async interaction => {
       const channel = await interaction.guild.channels.create({
         name: `${isShop ? 'shop' : (isSeller ? 'seller' : (isIndex ? 'index' : 'ticket'))}-${interaction.user.username.toLowerCase()}`,
         type: ChannelType.GuildText,
-        parent: setup.ticketCategory || null,
+        parent: setup.ticketCategory || undefined,
         permissionOverwrites: overwrites
       });
 
@@ -913,8 +937,6 @@ client.on('interactionCreate', async interaction => {
         opener: interaction.user.id,
         claimedBy: null,
         addedUsers: [],
-        confirmVotes: {},
-        feeVotes: {},
         isIndexTicket: isIndex,
         isSellerTicket: isSeller,
         isShopTicket: isShop
@@ -960,16 +982,10 @@ client.on('interactionCreate', async interaction => {
         });
       }
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
-      );
-
       const pingRole = isShop || isSeller ? setup.coOwnerRole : middlemanRole;
       await channel.send({
         content: pingRole ? `<@&${pingRole}> New ${isShop ? 'shop' : (isSeller ? 'seller' : (isIndex ? 'index' : 'ticket'))}!` : 'New ticket created!',
-        embeds: [welcomeEmbed],
-        components: [row]
+        embeds: [welcomeEmbed]
       });
 
       await interaction.editReply(`Ticket created → ${channel}`);
