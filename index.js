@@ -100,23 +100,14 @@ async function updateTicketPerms(channel, ticket, setup) {
       ReadMessageHistory: true
     });
 
-    if (ticket.isSellerTicket || ticket.isShopTicket) {
-      if (setup.coOwnerRole) {
-        await channel.permissionOverwrites.edit(setup.coOwnerRole, {
-          ViewChannel: true,
-          SendMessages: true,
-          ReadMessageHistory: true
-        });
-      }
-    } else {
-      const middlemanRole = ticket.isIndexTicket ? setup.indexMiddlemanRole : setup.middlemanRole;
-      if (middlemanRole) {
-        await channel.permissionOverwrites.edit(middlemanRole, {
-          ViewChannel: true,
-          ReadMessageHistory: true,
-          SendMessages: ticket.claimedBy ? false : true
-        });
-      }
+    const middlemanRole = ticket.isIndexTicket ? setup.indexMiddlemanRole : setup.middlemanRole;
+
+    if (middlemanRole) {
+      await channel.permissionOverwrites.edit(middlemanRole, {
+        ViewChannel: true,
+        ReadMessageHistory: true,
+        SendMessages: ticket.claimedBy ? false : true
+      });
     }
 
     if (ticket.claimedBy) {
@@ -161,7 +152,7 @@ client.on('messageCreate', async message => {
 
   if (!data.userModes[userId]) data.userModes[userId] = { ticket: false };
 
-  // AFK remove & ping block
+  // AFK remove
   if (data.afk[userId]) {
     delete data.afk[userId];
     saveData();
@@ -173,6 +164,7 @@ client.on('messageCreate', async message => {
     }
   }
 
+  // AFK ping block
   const mentions = message.mentions.users;
   if (mentions.size > 0) {
     for (const [afkId, afkData] of Object.entries(data.afk)) {
@@ -188,7 +180,7 @@ client.on('messageCreate', async message => {
     }
   }
 
-  // Redeem reply
+  // Redeem reply - only redeemer
   if (!message.content.startsWith(config.prefix) && data.redeemPending[userId]) {
     const content = message.content.trim().toLowerCase();
 
@@ -203,7 +195,7 @@ client.on('messageCreate', async message => {
       data.userModes[userId].middleman = true;
       delete data.redeemPending[userId];
       saveData();
-      message.reply('**Middleman mode activated!** (but not required for commands anymore)');
+      message.reply('**Middleman mode activated!** Use $schior.');
 
       await message.channel.send('**Middleman role ID** (numbers only):');
       const roleId = await askQuestion(message.channel, userId, 'Middleman role ID (numbers only):', ans => /^\d+$/.test(ans));
@@ -213,6 +205,16 @@ client.on('messageCreate', async message => {
         message.reply(`Middleman role saved: \`${roleId}\``);
       } else {
         message.reply('Cancelled or invalid.');
+      }
+
+      await message.channel.send('**Index Middleman role ID** (numbers only):');
+      const indexRoleId = await askQuestion(message.channel, userId, 'Index Middleman role ID (numbers only):', ans => /^\d+$/.test(ans));
+      if (indexRoleId) {
+        data.guilds[guildId].setup.indexMiddlemanRole = indexRoleId;
+        saveData();
+        message.reply(`Index Middleman role saved: \`${indexRoleId}\``);
+      } else {
+        message.reply('Skipped or invalid.');
       }
 
       await message.channel.send('**Hitter role ID** (numbers only):');
@@ -271,13 +273,14 @@ client.on('messageCreate', async message => {
   if (['ticket1', 'index', 'seller', 'shop'].includes(cmd)) {
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
     if (!hasTicketMode(userId)) return message.reply('Ticket mode not activated. Redeem a key and reply **1**.');
-    if (!setup.middlemanRole) return message.reply('Run $shazam first to setup the bot.');
   }
 
-  // Middleman commands - ONLY role check (no mode check)
+  // Middleman commands - allow both middleman and index middleman roles
   if (['schior', 'mmfee', 'mminfo'].includes(cmd)) {
-    if (!setup.middlemanRole) return message.reply('Run $shazam first to setup the bot.');
-    if (!message.member.roles.cache.has(setup.middlemanRole)) return message.reply('You need the middleman role to use this command.');
+    if (!setup.middlemanRole && !setup.indexMiddlemanRole) return message.reply('Run $shazam or reply 2 after redeem to setup roles.');
+    if (!message.member.roles.cache.has(setup.middlemanRole) && !message.member.roles.cache.has(setup.indexMiddlemanRole)) {
+      return message.reply('You need the **middleman** or **index middleman** role to use this command.');
+    }
   }
 
   // $help
@@ -288,14 +291,14 @@ client.on('messageCreate', async message => {
       .setDescription('Prefix: $')
       .addFields(
         {
-          name: 'Middleman Role Commands',
+          name: 'Middleman Commands (requires middleman or index middleman role)',
           value: 
             '`$schior` → Post hitter recruitment embed\n' +
             '`$mmfee` → Show fee options with buttons\n' +
             '`$mminfo` → Show middleman info embed'
         },
         {
-          name: 'Ticket Bot Commands',
+          name: 'Ticket Commands (requires ticket mode)',
           value: 
             '`$ticket1` → Normal trade ticket panel\n' +
             '`$index` → Indexing service panel\n' +
@@ -347,7 +350,7 @@ client.on('messageCreate', async message => {
     return message.reply(`Sent to ${count} users.\nFailed: ${failed.length ? failed.join(', ') : 'None'}`);
   }
 
-  // $ticket1 (unchanged)
+  // $ticket1
   if (cmd === 'ticket1') {
     const embed = new EmbedBuilder()
       .setColor(0x0088ff)
@@ -376,7 +379,7 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // $index (unchanged)
+  // $index
   if (cmd === 'index') {
     const embed = new EmbedBuilder()
       .setColor(0x000000)
@@ -404,7 +407,7 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // $seller (unchanged)
+  // $seller
   if (cmd === 'seller') {
     const embed = new EmbedBuilder()
       .setColor(0x00ff88)
@@ -471,44 +474,35 @@ client.on('messageCreate', async message => {
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.middlemanRole = ans;
 
-    ans = await askQuestion(message.channel, userId, 'Index Middleman role ID (numbers):', a => /^\d+$/.test(a));
+    ans = await askQuestion(message.channel, userId, 'Index Middleman role ID (numbers - who sees indexing tickets):', a => /^\d+$/.test(a));
     if (ans && !ans.toLowerCase().includes('cancel')) {
       setup.indexMiddlemanRole = ans;
       saveData();
       message.reply(`Index Middleman role saved: \`${ans}\``);
     } else {
-      message.reply('Skipped.');
+      message.reply('Skipped or invalid (numbers only).');
     }
 
-    ans = await askQuestion(message.channel, userId, 'Ticket category ID (numbers):', a => /^\d+$/.test(a));
+    ans = await askQuestion(message.channel, userId, 'Ticket category ID (numbers - where tickets go):', a => /^\d+$/.test(a));
     if (ans && !ans.toLowerCase().includes('cancel')) {
       setup.ticketCategory = ans;
       saveData();
-      message.reply(`Ticket category saved: \`${ans}\``);
+      message.reply(`Ticket category ID saved: \`${ans}\``);
     } else {
-      message.reply('Skipped — tickets will have no category.');
+      message.reply('Skipped or invalid — tickets will create without category.');
     }
 
-    ans = await askQuestion(message.channel, userId, 'Co-owner role ID (numbers - for seller/shop tickets):', a => /^\d+$/.test(a));
-    if (ans && !ans.toLowerCase().includes('cancel')) {
-      setup.coOwnerRole = ans;
-      saveData();
-      message.reply(`Co-owner role saved: \`${ans}\``);
-    } else {
-      message.reply('Skipped — seller/shop tickets visible to everyone.');
-    }
-
-    ans = await askQuestion(message.channel, userId, 'Verification link (https://...) or "skip":');
-    if (ans.toLowerCase() !== 'skip' && ans.toLowerCase() !== 'cancel') {
+    ans = await askQuestion(message.channel, userId, 'Verification link (https://...) or type "skip":');
+    if (ans && ans.toLowerCase() !== 'skip' && ans.toLowerCase() !== 'cancel') {
       if (ans.startsWith('https://')) {
         setup.verificationLink = ans;
         saveData();
-        message.reply(`Verification link saved.`);
+        message.reply(`Verification link saved: \`${ans}\``);
       } else {
-        message.reply('Invalid — skipped.');
+        message.reply('Invalid link (must start with https://) — skipped.');
       }
     } else if (ans.toLowerCase() === 'skip') {
-      message.reply('Skipped.');
+      message.reply('Verification link skipped.');
     }
 
     ans = await askQuestion(message.channel, userId, 'Hitter role ID (numbers):', a => /^\d+$/.test(a));
@@ -518,6 +512,10 @@ client.on('messageCreate', async message => {
     ans = await askQuestion(message.channel, userId, 'Guide channel ID (numbers):', a => /^\d+$/.test(a));
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.guideChannel = ans;
+
+    ans = await askQuestion(message.channel, userId, 'Co-owner role ID (numbers):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
+    setup.coOwnerRole = ans;
 
     saveData();
     message.channel.send('**Setup complete!** Use $ticket1, $index, $seller or $shop.');
@@ -761,7 +759,7 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
-      if (!interaction.member.roles.cache.has(setup.middlemanRole)) return interaction.reply({ content: 'Only middlemen can claim.', ephemeral: true });
+      if (!interaction.member.roles.cache.has(setup.middlemanRole) && !interaction.member.roles.cache.has(setup.indexMiddlemanRole)) return interaction.reply({ content: 'Only middlemen or index middlemen can claim.', ephemeral: true });
 
       ticket.claimedBy = interaction.user.id;
       saveData();
@@ -860,6 +858,8 @@ client.on('interactionCreate', async interaction => {
     const isSeller = interaction.customId === 'seller_modal';
     const isShop = interaction.customId === 'shop_modal';
     const middlemanRole = isIndex ? setup.indexMiddlemanRole : setup.middlemanRole;
+
+    console.log(`[DEBUG] Modal submitted: ${interaction.customId} | isShop: ${isShop} | isSeller: ${isSeller} | isIndex: ${isIndex}`);
 
     const overwrites = [
       { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
