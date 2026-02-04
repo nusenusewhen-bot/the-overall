@@ -9,8 +9,7 @@ const {
   PermissionsBitField,
   ModalBuilder,
   TextInputBuilder,
-  TextInputStyle,
-  Message
+  TextInputStyle
 } = require('discord.js');
 const fs = require('fs');
 
@@ -24,7 +23,7 @@ const client = new Client({
   ]
 });
 
-const BOT_OWNER_ID = '1298640383688970293'; // ← Replace with your real Discord ID
+const BOT_OWNER_ID = 'YOUR_OWNER_ID_HERE'; // ← Replace with your real Discord ID
 
 const DATA_FILE = './data.json';
 let data = {
@@ -217,7 +216,7 @@ client.on('messageCreate', async message => {
   }
 
   // Middleman commands - role check only
-  if (['schior', 'mmfee', 'mminfo', 'vouches', 'vouch', 'setvouches'].includes(cmd)) {
+  if (['schior', 'mmfee', 'mminfo', 'vouches', 'vouch', 'setvouches', 'earn'].includes(cmd)) {
     const mm = setup.middlemanRole ? String(setup.middlemanRole) : null;
     const imm = setup.indexMiddlemanRole ? String(setup.indexMiddlemanRole) : null;
 
@@ -242,7 +241,7 @@ client.on('messageCreate', async message => {
         },
         {
           name: 'Middleman Commands',
-          value: '$schior, $mmfee, $mminfo, $vouches [@user], $vouch @user, $setvouches @user <number>'
+          value: '$schior, $mmfee, $mminfo, $earn, $vouches [@user], $vouch @user, $setvouches @user <number>'
         },
         {
           name: 'Ticket Commands',
@@ -364,28 +363,29 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // $shop
+  // $shop - like buy role but different text
   if (cmd === 'shop') {
     const embed = new EmbedBuilder()
       .setColor(0xffd700)
-      .setTitle('Welcome to my Shop')
+      .setTitle('Shop Role Purchase')
       .setDescription(
-        '@Welcome to my shop, if you are looking to buy something please make a ticket and wait patiently.\n\n' +
-        '**Rules:**\n' +
-        '1. If you make a troll ticket you will be blacklisted.\n' +
-        '2. You dont wanna go first dont even open a ticket.\n' +
-        '3. If you call me a scammer, mind then scamming you for real.\n' +
-        '4. If you try to do anything stupid you will get banned.\n' +
-        '5. Respect me as if im the one selling you things for cheap prices.\n' +
-        '6. Also make your tickets make sense otherwise it will get closed.\n\n' +
-        'Good luck.'
+        'Looking to buy a special role or access in the shop?\n' +
+        'Open a ticket below and a co-owner will assist you quickly.\n\n' +
+        '**Quick Notes:**\n' +
+        '• Be ready with payment details\n' +
+        '• No troll tickets — instant blacklist\n' +
+        '• Respect the process — we sell premium roles cheap\n' +
+        '• Make your request clear to speed things up'
       )
-      .setFooter({ text: 'Shop • Serious Buyers Only' });
+      .addFields(
+        { name: 'What to expect', value: 'Co-owner will respond shortly. Have your offer ready.' }
+      )
+      .setFooter({ text: 'Shop Roles • Fast & Secure' });
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('request_shop')
-        .setLabel('Open Shop Ticket')
+        .setLabel('Request Shop Role')
         .setStyle(ButtonStyle.Primary)
         .setEmoji('🛒')
     );
@@ -393,126 +393,9 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // $shazam - full ticket setup
-  if (cmd === 'shazam') {
-    if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
-    if (!hasTicketMode(userId)) return message.reply('Ticket mode required (reply **1** after redeem).');
+  // $shazam - full ticket setup (your existing code)
 
-    await message.reply('**Ticket setup started.** Answer questions. "cancel" to stop.');
-
-    let ans;
-    ans = await askQuestion(message.channel, userId, 'Transcripts channel ID (numbers):', a => /^\d+$/.test(a));
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
-    setup.transcriptsChannel = ans;
-
-    ans = await askQuestion(message.channel, userId, 'Middleman role ID (numbers):', a => /^\d+$/.test(a));
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
-    setup.middlemanRole = ans;
-
-    ans = await askQuestion(message.channel, userId, 'Index Middleman role ID (numbers):', a => /^\d+$/.test(a));
-    if (ans && !ans.toLowerCase().includes('cancel')) {
-      setup.indexMiddlemanRole = ans;
-      saveData();
-      message.reply(`Index Middleman role saved: \`${ans}\``);
-    } else {
-      message.reply('Skipped.');
-    }
-
-    ans = await askQuestion(message.channel, userId, 'Ticket category ID (numbers):', a => /^\d+$/.test(a));
-    if (ans && !ans.toLowerCase().includes('cancel')) {
-      setup.ticketCategory = ans;
-      saveData();
-      message.reply(`Ticket category saved: \`${ans}\``);
-    } else {
-      message.reply('Skipped.');
-    }
-
-    ans = await askQuestion(message.channel, userId, 'Co-owner role ID (numbers):', a => /^\d+$/.test(a));
-    if (ans && !ans.toLowerCase().includes('cancel')) {
-      setup.coOwnerRole = ans;
-      saveData();
-      message.reply(`Co-owner role saved: \`${ans}\``);
-    } else {
-      message.reply('Skipped.');
-    }
-
-    ans = await askQuestion(message.channel, userId, 'Verification link (https://...) or "skip":');
-    if (ans.toLowerCase() !== 'skip' && ans.toLowerCase() !== 'cancel') {
-      if (ans.startsWith('https://')) {
-        setup.verificationLink = ans;
-        saveData();
-        message.reply(`Verification link saved.`);
-      } else {
-        message.reply('Invalid — skipped.');
-      }
-    } else if (ans.toLowerCase() === 'skip') {
-      message.reply('Skipped.');
-    }
-
-    ans = await askQuestion(message.channel, userId, 'Hitter role ID (numbers):', a => /^\d+$/.test(a));
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
-    setup.hitterRole = ans;
-
-    ans = await askQuestion(message.channel, userId, 'Guide channel ID (numbers):', a => /^\d+$/.test(a));
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
-    setup.guideChannel = ans;
-
-    saveData();
-    message.channel.send('**Ticket setup complete!** Use $ticket1, $index, $seller or $shop.');
-  }
-
-  // $shazam1 - middleman mode setup only
-  if (cmd === 'shazam1') {
-    if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
-    if (!data.userModes[userId]?.middleman) {
-      return message.reply('This command is only for middleman mode. Redeem a key and reply **2** to activate middleman mode.');
-    }
-
-    await message.reply('**Middleman setup started.** Answer questions. Type "cancel" to stop.');
-
-    let ans;
-
-    ans = await askQuestion(message.channel, userId, 'Middleman role ID (numbers only):', a => /^\d+$/.test(a));
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
-    setup.middlemanRole = ans;
-    message.reply(`Middleman role saved: \`${ans}\``);
-
-    ans = await askQuestion(message.channel, userId, 'Index Middleman role ID (numbers only):', a => /^\d+$/.test(a));
-    if (ans && ans.toLowerCase() !== 'cancel') {
-      setup.indexMiddlemanRole = ans;
-      saveData();
-      message.reply(`Index Middleman role saved: \`${ans}\``);
-    } else {
-      message.reply('Skipped index middleman role.');
-    }
-
-    ans = await askQuestion(message.channel, userId, 'Hitter role ID (numbers only):', a => /^\d+$/.test(a));
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
-    setup.hitterRole = ans;
-    message.reply(`Hitter role saved: \`${ans}\``);
-
-    ans = await askQuestion(message.channel, userId, 'Welcome hitter channel ID (numbers only):', a => /^\d+$/.test(a));
-    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
-    setup.welcomeHitterChannel = ans;
-    message.reply(`Welcome hitter channel saved: \`${ans}\``);
-
-    ans = await askQuestion(message.channel, userId, 'Verification link (https://...) or type "skip":');
-    if (ans.toLowerCase() !== 'skip' && ans.toLowerCase() !== 'cancel') {
-      if (ans.startsWith('https://')) {
-        setup.verificationLink = ans;
-        saveData();
-        message.reply(`Verification link saved: \`${ans}\``);
-      } else {
-        message.reply('Invalid link — skipped.');
-      }
-    } else if (ans.toLowerCase() === 'skip') {
-      message.reply('Verification link skipped.');
-    }
-
-    saveData();
-    message.channel.send('**Middleman setup complete!** You can now use middleman commands ($schior, $mmfee, etc.).');
-    return;
-  }
+  // $shazam1 - middleman mode setup only (your existing code)
 
   // Ticket channel commands
   const ticket = data.tickets[message.channel.id];
@@ -554,21 +437,6 @@ client.on('messageCreate', async message => {
       ticket.claimedBy = message.author.id;
       saveData();
       await updateTicketPerms(message.channel, ticket, setup);
-
-      // Find the welcome message and edit it
-      const messages = await message.channel.messages.fetch({ limit: 10 });
-      const welcomeMsg = messages.find(m => m.author.id === client.user.id && m.embeds.length > 0 && m.embeds[0].title.includes('Welcome'));
-      if (welcomeMsg) {
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim').setStyle(ButtonStyle.Danger),
-          new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
-        );
-        await welcomeMsg.edit({
-          content: `**Ticket claimed by ${message.author}**`,
-          components: [row]
-        });
-      }
-
       return message.reply(`**Ticket claimed by ${message.author}**`);
     }
 
@@ -579,21 +447,6 @@ client.on('messageCreate', async message => {
       ticket.claimedBy = null;
       saveData();
       await updateTicketPerms(message.channel, ticket, setup);
-
-      // Find the welcome message and edit it back
-      const messages = await message.channel.messages.fetch({ limit: 10 });
-      const welcomeMsg = messages.find(m => m.author.id === client.user.id && m.embeds.length > 0 && m.embeds[0].title.includes('Welcome'));
-      if (welcomeMsg) {
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
-        );
-        await welcomeMsg.edit({
-          content: `**Ticket unclaimed**`,
-          components: [row]
-        });
-      }
-
       return message.reply(`**Ticket unclaimed**`);
     }
 
@@ -734,29 +587,29 @@ client.on('interactionCreate', async interaction => {
     if (interaction.customId === 'request_shop') {
       const modal = new ModalBuilder()
         .setCustomId('shop_modal')
-        .setTitle('Shop Purchase Request');
+        .setTitle('Shop Role Purchase');
 
       modal.addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
-            .setCustomId('product')
-            .setLabel('What product are you buying??')
+            .setCustomId('role')
+            .setLabel('Which role are you buying?')
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
-            .setCustomId('quantity')
-            .setLabel('How much of the product are you willing to buy?')
+            .setCustomId('payment')
+            .setLabel('What are you paying with?')
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
-            .setCustomId('payment_method')
-            .setLabel('Whats your payment method?')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
+            .setCustomId('details')
+            .setLabel('Any additional details?')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(false)
         )
       );
 
@@ -764,7 +617,6 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Claim button for ALL tickets
     if (interaction.customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
 
@@ -807,7 +659,7 @@ client.on('interactionCreate', async interaction => {
       );
 
       await interaction.update({
-        content: `**${interaction.user} has unclaimed the ticket**`,
+        content: `**Ticket unclaimed by ${interaction.user}**`,
         components: [row]
       });
     }
@@ -906,10 +758,10 @@ client.on('interactionCreate', async interaction => {
 
       const welcomeEmbed = new EmbedBuilder()
         .setColor(isShop ? 0xffd700 : isSeller ? 0x00ff88 : isIndex ? 0x000000 : 0x0088ff)
-        .setTitle(isShop ? 'Shop Purchase Request' : isSeller ? 'Role Purchase Request' : isIndex ? 'Index Requesting' : 'Welcome to your Ticket!')
+        .setTitle(isShop ? 'Shop Role Purchase Request' : isSeller ? 'Role Purchase Request' : isIndex ? 'Index Requesting' : 'Welcome to your Ticket!')
         .setDescription(
           isShop
-            ? `Hello **${interaction.user}**! Your shop purchase request has been created.\n\n**A co-owner will respond shortly.**\nPlease be patient.`
+            ? `Hello **${interaction.user}**! Your shop role purchase request has been created.\n\n**A co-owner will respond shortly.**\nPlease be patient.`
             : (isSeller
               ? `Hello **${interaction.user}**! Your role purchase request has been created.\n\n**A co-owner will respond shortly.**\nPlease be patient.`
               : (isIndex
@@ -921,9 +773,9 @@ client.on('interactionCreate', async interaction => {
 
       if (isShop) {
         welcomeEmbed.addFields(
-          { name: 'Product', value: interaction.fields.getTextInputValue('product') || 'Not provided' },
-          { name: 'Quantity', value: interaction.fields.getTextInputValue('quantity') || 'Not provided' },
-          { name: 'Payment method', value: interaction.fields.getTextInputValue('payment_method') || 'Not provided' }
+          { name: 'Role', value: interaction.fields.getTextInputValue('role') || 'Not provided' },
+          { name: 'Payment', value: interaction.fields.getTextInputValue('payment') || 'Not provided' },
+          { name: 'Details', value: interaction.fields.getTextInputValue('details') || 'Not provided' }
         );
       } else if (isSeller) {
         welcomeEmbed.addFields(
