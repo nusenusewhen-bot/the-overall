@@ -9,7 +9,8 @@ const {
   PermissionsBitField,
   ModalBuilder,
   TextInputBuilder,
-  TextInputStyle
+  TextInputStyle,
+  Message
 } = require('discord.js');
 const fs = require('fs');
 
@@ -23,7 +24,7 @@ const client = new Client({
   ]
 });
 
-const BOT_OWNER_ID = 'YOUR_OWNER_ID_HERE'; // ← Replace with your real Discord ID
+const BOT_OWNER_ID = '1298640383688970293'; // ← Replace with your real Discord ID
 
 const DATA_FILE = './data.json';
 let data = {
@@ -553,6 +554,21 @@ client.on('messageCreate', async message => {
       ticket.claimedBy = message.author.id;
       saveData();
       await updateTicketPerms(message.channel, ticket, setup);
+
+      // Find the welcome message and edit it
+      const messages = await message.channel.messages.fetch({ limit: 10 });
+      const welcomeMsg = messages.find(m => m.author.id === client.user.id && m.embeds.length > 0 && m.embeds[0].title.includes('Welcome'));
+      if (welcomeMsg) {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
+        );
+        await welcomeMsg.edit({
+          content: `**Ticket claimed by ${message.author}**`,
+          components: [row]
+        });
+      }
+
       return message.reply(`**Ticket claimed by ${message.author}**`);
     }
 
@@ -563,6 +579,21 @@ client.on('messageCreate', async message => {
       ticket.claimedBy = null;
       saveData();
       await updateTicketPerms(message.channel, ticket, setup);
+
+      // Find the welcome message and edit it back
+      const messages = await message.channel.messages.fetch({ limit: 10 });
+      const welcomeMsg = messages.find(m => m.author.id === client.user.id && m.embeds.length > 0 && m.embeds[0].title.includes('Welcome'));
+      if (welcomeMsg) {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
+        );
+        await welcomeMsg.edit({
+          content: `**Ticket unclaimed**`,
+          components: [row]
+        });
+      }
+
       return message.reply(`**Ticket unclaimed**`);
     }
 
@@ -733,35 +764,15 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    if (interaction.customId === 'claim_index_ticket') {
-      if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
-
-      const hasIndexMM = setup.indexMiddlemanRole && interaction.member.roles.cache.has(String(setup.indexMiddlemanRole));
-      const hasMM = setup.middlemanRole && interaction.member.roles.cache.has(String(setup.middlemanRole));
-
-      if (!hasIndexMM && !hasMM) {
-        return interaction.reply({ content: 'Only index middlemen (or middlemen) can claim this index ticket.', ephemeral: true });
-      }
-
-      ticket.claimedBy = interaction.user.id;
-      saveData();
-      await updateTicketPerms(interaction.channel, ticket, setup);
-
-      const newRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
-      );
-
-      await interaction.update({
-        content: `**${interaction.user} has claimed this index ticket**`,
-        components: [newRow]
-      });
-    }
-
+    // Claim button for ALL tickets
     if (interaction.customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
-      if (!interaction.member.roles.cache.has(String(setup.middlemanRole || '')) && !interaction.member.roles.cache.has(String(setup.indexMiddlemanRole || ''))) {
-        return interaction.reply({ content: 'Only middlemen can claim.', ephemeral: true });
+
+      const hasMM = setup.middlemanRole && interaction.member.roles.cache.has(String(setup.middlemanRole));
+      const hasIndexMM = setup.indexMiddlemanRole && interaction.member.roles.cache.has(String(setup.indexMiddlemanRole));
+
+      if (!hasMM && !hasIndexMM) {
+        return interaction.reply({ content: 'Only middlemen can claim this ticket.', ephemeral: true });
       }
 
       ticket.claimedBy = interaction.user.id;
@@ -774,7 +785,7 @@ client.on('interactionCreate', async interaction => {
       );
 
       await interaction.update({
-        content: `**${interaction.user} has claimed ticket**`,
+        content: `**${interaction.user} has claimed the ticket**`,
         components: [row]
       });
     }
@@ -932,30 +943,22 @@ client.on('interactionCreate', async interaction => {
         });
       }
 
-      const row = new ActionRowBuilder();
-
-      if (isIndex) {
-        row.addComponents(
-          new ButtonBuilder()
-            .setCustomId('claim_index_ticket')
-            .setLabel('Claim')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('✅')
-        );
-      } else if (!isSeller && !isShop) {
-        row.addComponents(
-          new ButtonBuilder()
-            .setCustomId('claim_ticket')
-            .setLabel('Claim')
-            .setStyle(ButtonStyle.Success)
-        );
-      }
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('claim_ticket')
+          .setLabel('Claim')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('close_ticket')
+          .setLabel('Close')
+          .setStyle(ButtonStyle.Secondary)
+      );
 
       const pingRole = isShop || isSeller ? setup.coOwnerRole : middlemanRole;
       await channel.send({
         content: pingRole ? `<@&${pingRole}> New ${isShop ? 'shop' : (isSeller ? 'seller' : (isIndex ? 'index' : 'ticket'))}!` : 'New ticket created!',
         embeds: [welcomeEmbed],
-        components: row.components.length > 0 ? [row] : []
+        components: [row]
       });
 
       await interaction.editReply(`Ticket created → ${channel}`);
