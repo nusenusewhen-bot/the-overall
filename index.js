@@ -1,5 +1,5 @@
 const {
-  Client, 
+  Client,
   GatewayIntentBits,
   EmbedBuilder,
   ActionRowBuilder,
@@ -161,7 +161,7 @@ client.on('messageCreate', async message => {
 
   if (!data.userModes[userId]) data.userModes[userId] = { ticket: false };
 
-  // AFK remove & ping block (unchanged)
+  // AFK remove & ping block
   if (data.afk[userId]) {
     delete data.afk[userId];
     saveData();
@@ -203,7 +203,7 @@ client.on('messageCreate', async message => {
       data.userModes[userId].middleman = true;
       delete data.redeemPending[userId];
       saveData();
-      message.reply('**Middleman mode activated!** Use $schior.');
+      message.reply('**Middleman mode activated!** (but not required for commands anymore)');
 
       await message.channel.send('**Middleman role ID** (numbers only):');
       const roleId = await askQuestion(message.channel, userId, 'Middleman role ID (numbers only):', ans => /^\d+$/.test(ans));
@@ -274,7 +274,7 @@ client.on('messageCreate', async message => {
     if (!setup.middlemanRole) return message.reply('Run $shazam first to setup the bot.');
   }
 
-  // Middleman commands - ONLY role check (no mode required)
+  // Middleman commands - ONLY role check (no mode check)
   if (['schior', 'mmfee', 'mminfo'].includes(cmd)) {
     if (!setup.middlemanRole) return message.reply('Run $shazam first to setup the bot.');
     if (!message.member.roles.cache.has(setup.middlemanRole)) return message.reply('You need the middleman role to use this command.');
@@ -338,7 +338,7 @@ client.on('messageCreate', async message => {
       try {
         await member.send(msg);
         count++;
-        await new Promise(r => setTimeout(r, 1000)); // avoid rate limit ban
+        await new Promise(r => setTimeout(r, 1000));
       } catch {
         failed.push(member.user.tag);
       }
@@ -347,7 +347,7 @@ client.on('messageCreate', async message => {
     return message.reply(`Sent to ${count} users.\nFailed: ${failed.length ? failed.join(', ') : 'None'}`);
   }
 
-  // $ticket1
+  // $ticket1 (unchanged)
   if (cmd === 'ticket1') {
     const embed = new EmbedBuilder()
       .setColor(0x0088ff)
@@ -376,7 +376,7 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // $index
+  // $index (unchanged)
   if (cmd === 'index') {
     const embed = new EmbedBuilder()
       .setColor(0x000000)
@@ -404,7 +404,7 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // $seller
+  // $seller (unchanged)
   if (cmd === 'seller') {
     const embed = new EmbedBuilder()
       .setColor(0x00ff88)
@@ -455,7 +455,7 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // Shazam setup (unchanged)
+  // Shazam setup
   if (cmd === 'shazam') {
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
     if (!hasTicketMode(userId)) return message.reply('Ticket mode required (reply **1** after redeem).');
@@ -524,6 +524,7 @@ client.on('messageCreate', async message => {
   }
 
   // Ticket channel commands
+  const ticket = data.tickets[message.channel.id];
   if (ticket) {
     const isMM = message.member.roles.cache.has(setup.middlemanRole);
     const isIndexMM = message.member.roles.cache.has(setup.indexMiddlemanRole);
@@ -598,7 +599,6 @@ client.on('interactionCreate', async interaction => {
   const ticket = data.tickets[interaction.channel?.id];
 
   if (interaction.isButton()) {
-    // Normal ticket
     if (interaction.customId === 'request_ticket') {
       const modal = new ModalBuilder()
         .setCustomId('ticket_modal')
@@ -632,7 +632,6 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Index ticket
     if (interaction.customId === 'request_index') {
       const modal = new ModalBuilder()
         .setCustomId('index_modal')
@@ -666,7 +665,6 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Seller ticket
     if (interaction.customId === 'request_seller') {
       const modal = new ModalBuilder()
         .setCustomId('seller_modal')
@@ -693,7 +691,6 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Shop ticket - this is the fixed part
     if (interaction.customId === 'request_shop') {
       const modal = new ModalBuilder()
         .setCustomId('shop_modal')
@@ -727,7 +724,6 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Join Us
     if (interaction.customId === 'join_hitter') {
       const member = interaction.member;
       if (!member.roles.cache.has(setup.hitterRole) && setup.hitterRole) {
@@ -763,7 +759,6 @@ client.on('interactionCreate', async interaction => {
       await interaction.reply({ content: `**${interaction.user} was not interested**, we will be kicking you in 1 hour.\nIf you change your mind, click **Join Us**!`, ephemeral: false });
     }
 
-    // Claim
     if (interaction.customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
       if (!interaction.member.roles.cache.has(setup.middlemanRole)) return interaction.reply({ content: 'Only middlemen can claim.', ephemeral: true });
@@ -783,7 +778,6 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // Unclaim
     if (interaction.customId === 'unclaim_ticket') {
       const isOwner = interaction.user.id === BOT_OWNER_ID;
       if (!ticket.claimedBy) return interaction.reply({ content: 'Not claimed.', ephemeral: true });
@@ -806,7 +800,6 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // Close
     if (interaction.customId === 'close_ticket') {
       const isOwner = interaction.user.id === BOT_OWNER_ID;
       if (!ticket.claimedBy && !interaction.member.roles.cache.has(setup.coOwnerRole) && !isOwner) {
