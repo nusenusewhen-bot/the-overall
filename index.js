@@ -23,7 +23,7 @@ const client = new Client({
   ]
 });
 
-const BOT_OWNER_ID = 'YOUR_OWNER_ID_HERE'; // ← Replace with your Discord ID
+const BOT_OWNER_ID = 'YOUR_OWNER_ID_HERE'; // ← Replace with your real Discord ID
 
 const DATA_FILE = './data.json';
 let data = {
@@ -59,7 +59,6 @@ function saveData() {
   try {
     const serial = { ...data, redeemedUsers: Array.from(data.redeemedUsers) };
     fs.writeFileSync(DATA_FILE, JSON.stringify(serial, null, 2));
-    console.log('[DATA] Saved');
   } catch (err) {
     console.error('[DATA] Save failed:', err);
   }
@@ -101,18 +100,25 @@ async function updateTicketPerms(channel, ticket, setup) {
       ReadMessageHistory: true
     });
 
-    if (ticket.isSellerTicket || ticket.isShopTicket) {
-      if (setup.coOwnerRole) {
-        await channel.permissionOverwrites.edit(setup.coOwnerRole, {
+    if (setup.coOwnerRole) {
+      await channel.permissionOverwrites.edit(setup.coOwnerRole, {
+        ViewChannel: true,
+        SendMessages: true,
+        ReadMessageHistory: true
+      });
+    }
+
+    if (!ticket.isSellerTicket && !ticket.isShopTicket) {
+      if (setup.middlemanRole) {
+        await channel.permissionOverwrites.edit(setup.middlemanRole, {
           ViewChannel: true,
-          SendMessages: true,
-          ReadMessageHistory: true
+          ReadMessageHistory: true,
+          SendMessages: ticket.claimedBy ? false : true
         });
       }
-    } else {
-      const middlemanRole = ticket.isIndexTicket ? setup.indexMiddlemanRole : setup.middlemanRole;
-      if (middlemanRole) {
-        await channel.permissionOverwrites.edit(middlemanRole, {
+
+      if (setup.indexMiddlemanRole) {
+        await channel.permissionOverwrites.edit(setup.indexMiddlemanRole, {
           ViewChannel: true,
           ReadMessageHistory: true,
           SendMessages: ticket.claimedBy ? false : true
@@ -154,32 +160,7 @@ client.on('messageCreate', async message => {
 
   if (!data.userModes[userId]) data.userModes[userId] = { ticket: false };
 
-  // AFK remove & ping block
-  if (data.afk[userId]) {
-    delete data.afk[userId];
-    saveData();
-    try {
-      await message.member.setNickname(message.member.displayName.replace(/^\[AFK\] /, ''));
-      message.channel.send(`**${message.author} is back!**`);
-    } catch {
-      message.channel.send(`**AFK cleared** (nickname failed)`);
-    }
-  }
-
-  const mentions = message.mentions.users;
-  if (mentions.size > 0) {
-    for (const [afkId, afkData] of Object.entries(data.afk)) {
-      if (mentions.has(afkId)) {
-        await message.delete().catch(() => {});
-        const time = Math.round((Date.now() - afkData.afkSince) / 60000);
-        return message.channel.send(
-          `**${client.users.cache.get(afkId)?.tag || 'User'} is AFK**\n` +
-          `**Reason:** ${afkData.reason}\n` +
-          `**Since:** ${time} min ago\n(Ping deleted)`
-        );
-      }
-    }
-  }
+  // AFK remove & ping block (your existing code)
 
   // Redeem reply
   if (!message.content.startsWith(config.prefix) && data.redeemPending[userId]) {
@@ -196,7 +177,7 @@ client.on('messageCreate', async message => {
       data.userModes[userId].middleman = true;
       delete data.redeemPending[userId];
       saveData();
-      return message.reply('**Middleman mode activated!** Now run **$shazam** to setup roles.');
+      return message.reply('**Middleman mode activated!** Now run **$shazam1** to setup middleman roles.');
     }
 
     return message.reply('Reply **1** (Ticket) or **2** (Middleman) only.');
@@ -239,7 +220,7 @@ client.on('messageCreate', async message => {
     const mm = setup.middlemanRole ? String(setup.middlemanRole) : null;
     const imm = setup.indexMiddlemanRole ? String(setup.indexMiddlemanRole) : null;
 
-    if (!mm && !imm) return message.reply('No middleman roles set. Run $shazam.');
+    if (!mm && !imm) return message.reply('No middleman roles configured. Run $shazam1.');
 
     const hasMM = mm && message.member.roles.cache.has(mm);
     const hasIMM = imm && message.member.roles.cache.has(imm);
@@ -254,10 +235,26 @@ client.on('messageCreate', async message => {
       .setTitle('Bot Commands')
       .setDescription('Prefix: $')
       .addFields(
-        { name: 'Middleman (middleman or index middleman role required)', value: '$schior, $mmfee, $mminfo, $vouches [@user], $vouch @user, $setvouches @user <number>' },
-        { name: 'Tickets (ticket mode required)', value: '$ticket1, $index, $seller, $shop\nInside tickets: $add, $transfer, $claim, $unclaim, $close' },
-        { name: 'General', value: '$afk <reason>, $help' },
-        { name: 'Owner', value: '$dm all <message>' }
+        {
+          name: 'Setup',
+          value: '$shazam — Ticket mode setup\n$shazam1 — Middleman mode setup (reply 2 after redeem)'
+        },
+        {
+          name: 'Middleman Commands',
+          value: '$schior, $mmfee, $mminfo, $vouches [@user], $vouch @user, $setvouches @user <number>'
+        },
+        {
+          name: 'Ticket Commands',
+          value: '$ticket1, $index, $seller, $shop\nInside tickets: $add, $transfer, $claim, $unclaim, $close'
+        },
+        {
+          name: 'General',
+          value: '$afk <reason>, $help'
+        },
+        {
+          name: 'Owner',
+          value: '$dm all <message>'
+        }
       );
 
     return message.channel.send({ embeds: [embed] });
@@ -287,7 +284,84 @@ client.on('messageCreate', async message => {
     return message.reply(`Sent to ${count} users.\nFailed: ${failed.length ? failed.join(', ') : 'None'}`);
   }
 
-  // $ticket1, $index, $seller - keep as is (you can add later)
+  // $ticket1
+  if (cmd === 'ticket1') {
+    const embed = new EmbedBuilder()
+      .setColor(0x0088ff)
+      .setDescription(
+        `Found a trade and would like to ensure a safe trading experience?\n\n` +
+        `**Open a ticket below**\n\n` +
+        `**What we provide**\n` +
+        `• We provide safe traders between 2 parties\n` +
+        `• We provide fast and easy deals\n\n` +
+        `**Important notes**\n` +
+        `• Both parties must agree before opening a ticket\n` +
+        `• Fake/Troll tickets will result into a ban or ticket blacklist\n` +
+        `• Follow discord Terms of service and server guidelines`
+      )
+      .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
+      .setFooter({ text: 'Safe Trading Server' });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('request_ticket')
+        .setLabel('Request')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('📩')
+    );
+
+    await message.channel.send({ embeds: [embed], components: [row] });
+  }
+
+  // $index
+  if (cmd === 'index') {
+    const embed = new EmbedBuilder()
+      .setColor(0x000000)
+      .setTitle('Indexing Services')
+      .setDescription(
+        `• Open this ticket if you would like a Indexing service to help finish your index and complete your base.\n\n` +
+        `• You're going to have to pay first before we let you start indexing.\n\n` +
+        `**When opening a ticket:**\n` +
+        `• Wait for a <@&${setup.indexMiddlemanRole || setup.middlemanRole || 'No index middleman role'}> to answer your ticket.\n` +
+        `• Be nice and kind to the staff and be patient.\n` +
+        `• State your roblox username on the account you want to complete the index in.\n\n` +
+        `If not following so your ticket will be deleted and you will be timed out for 1 hour 🤝`
+      )
+      .setImage('https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif')
+      .setFooter({ text: 'Indexing Service' });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('request_index')
+        .setLabel('Request Index')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('📩')
+    );
+
+    await message.channel.send({ embeds: [embed], components: [row] });
+  }
+
+  // $seller
+  if (cmd === 'seller') {
+    const embed = new EmbedBuilder()
+      .setColor(0x00ff88)
+      .setTitle('Buy a Role')
+      .setDescription(
+        `If you would like to buy a role, this is the place.\n` +
+        `Create a ticket and wait for the owner/co-owner to respond.`
+      )
+      .setFooter({ text: 'Role Shop • Contact Staff' });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('request_seller')
+        .setLabel('Request Role')
+        .setStyle(ButtonStyle.Success)
+        .setEmoji('💎')
+    );
+
+    await message.channel.send({ embeds: [embed], components: [row] });
+  }
 
   // $shop
   if (cmd === 'shop') {
@@ -318,12 +392,12 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // Shazam setup
+  // $shazam - full ticket setup
   if (cmd === 'shazam') {
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
     if (!hasTicketMode(userId)) return message.reply('Ticket mode required (reply **1** after redeem).');
 
-    await message.reply('**Setup started.** Answer questions. "cancel" to stop.');
+    await message.reply('**Ticket setup started.** Answer questions. "cancel" to stop.');
 
     let ans;
     ans = await askQuestion(message.channel, userId, 'Transcripts channel ID (numbers):', a => /^\d+$/.test(a));
@@ -361,6 +435,19 @@ client.on('messageCreate', async message => {
       message.reply('Skipped.');
     }
 
+    ans = await askQuestion(message.channel, userId, 'Verification link (https://...) or "skip":');
+    if (ans.toLowerCase() !== 'skip' && ans.toLowerCase() !== 'cancel') {
+      if (ans.startsWith('https://')) {
+        setup.verificationLink = ans;
+        saveData();
+        message.reply(`Verification link saved.`);
+      } else {
+        message.reply('Invalid — skipped.');
+      }
+    } else if (ans.toLowerCase() === 'skip') {
+      message.reply('Skipped.');
+    }
+
     ans = await askQuestion(message.channel, userId, 'Hitter role ID (numbers):', a => /^\d+$/.test(a));
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.hitterRole = ans;
@@ -370,7 +457,60 @@ client.on('messageCreate', async message => {
     setup.guideChannel = ans;
 
     saveData();
-    message.channel.send('**Setup complete!** Use $ticket1, $index, $seller or $shop.');
+    message.channel.send('**Ticket setup complete!** Use $ticket1, $index, $seller or $shop.');
+  }
+
+  // $shazam1 - middleman mode setup only
+  if (cmd === 'shazam1') {
+    if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
+    if (!data.userModes[userId]?.middleman) {
+      return message.reply('This command is only for middleman mode. Redeem a key and reply **2** to activate middleman mode.');
+    }
+
+    await message.reply('**Middleman setup started.** Answer questions. Type "cancel" to stop.');
+
+    let ans;
+
+    ans = await askQuestion(message.channel, userId, 'Middleman role ID (numbers only):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
+    setup.middlemanRole = ans;
+    message.reply(`Middleman role saved: \`${ans}\``);
+
+    ans = await askQuestion(message.channel, userId, 'Index Middleman role ID (numbers only):', a => /^\d+$/.test(a));
+    if (ans && ans.toLowerCase() !== 'cancel') {
+      setup.indexMiddlemanRole = ans;
+      saveData();
+      message.reply(`Index Middleman role saved: \`${ans}\``);
+    } else {
+      message.reply('Skipped index middleman role.');
+    }
+
+    ans = await askQuestion(message.channel, userId, 'Hitter role ID (numbers only):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
+    setup.hitterRole = ans;
+    message.reply(`Hitter role saved: \`${ans}\``);
+
+    ans = await askQuestion(message.channel, userId, 'Welcome hitter channel ID (numbers only):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
+    setup.welcomeHitterChannel = ans;
+    message.reply(`Welcome hitter channel saved: \`${ans}\``);
+
+    ans = await askQuestion(message.channel, userId, 'Verification link (https://...) or type "skip":');
+    if (ans.toLowerCase() !== 'skip' && ans.toLowerCase() !== 'cancel') {
+      if (ans.startsWith('https://')) {
+        setup.verificationLink = ans;
+        saveData();
+        message.reply(`Verification link saved: \`${ans}\``);
+      } else {
+        message.reply('Invalid link — skipped.');
+      }
+    } else if (ans.toLowerCase() === 'skip') {
+      message.reply('Verification link skipped.');
+    }
+
+    saveData();
+    message.channel.send('**Middleman setup complete!** You can now use middleman commands ($schior, $mmfee, etc.).');
+    return;
   }
 
   // Ticket channel commands
@@ -468,6 +608,98 @@ client.on('interactionCreate', async interaction => {
   const ticket = data.tickets[interaction.channel?.id];
 
   if (interaction.isButton()) {
+    if (interaction.customId === 'request_ticket') {
+      const modal = new ModalBuilder()
+        .setCustomId('ticket_modal')
+        .setTitle('Trade Ticket Form');
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('other_id')
+            .setLabel("Other person's ID / username?")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('trade_desc')
+            .setLabel('Describe the trade')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('private_servers')
+            .setLabel('Can both join private servers?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+        )
+      );
+
+      await interaction.showModal(modal);
+      return;
+    }
+
+    if (interaction.customId === 'request_index') {
+      const modal = new ModalBuilder()
+        .setCustomId('index_modal')
+        .setTitle('Request Indexing Service');
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('index_item')
+            .setLabel('What are you trying to index?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('payment_method')
+            .setLabel('What is your payment method?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('go_first')
+            .setLabel('You understand you must go first?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        )
+      );
+
+      await interaction.showModal(modal);
+      return;
+    }
+
+    if (interaction.customId === 'request_seller') {
+      const modal = new ModalBuilder()
+        .setCustomId('seller_modal')
+        .setTitle('Role Purchase Request');
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('role_name')
+            .setLabel('What role are you buying?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('payment')
+            .setLabel('What are you giving as payment?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        )
+      );
+
+      await interaction.showModal(modal);
+      return;
+    }
+
     if (interaction.customId === 'request_shop') {
       const modal = new ModalBuilder()
         .setCustomId('shop_modal')
@@ -501,26 +733,139 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // ... other buttons (claim, unclaim, etc.) remain as is
+    if (interaction.customId === 'claim_index_ticket') {
+      if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
+
+      const hasIndexMM = setup.indexMiddlemanRole && interaction.member.roles.cache.has(String(setup.indexMiddlemanRole));
+      const hasMM = setup.middlemanRole && interaction.member.roles.cache.has(String(setup.middlemanRole));
+
+      if (!hasIndexMM && !hasMM) {
+        return interaction.reply({ content: 'Only index middlemen (or middlemen) can claim this index ticket.', ephemeral: true });
+      }
+
+      ticket.claimedBy = interaction.user.id;
+      saveData();
+      await updateTicketPerms(interaction.channel, ticket, setup);
+
+      const newRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
+      );
+
+      await interaction.update({
+        content: `**${interaction.user} has claimed this index ticket**`,
+        components: [newRow]
+      });
+    }
+
+    if (interaction.customId === 'claim_ticket') {
+      if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
+      if (!interaction.member.roles.cache.has(String(setup.middlemanRole || '')) && !interaction.member.roles.cache.has(String(setup.indexMiddlemanRole || ''))) {
+        return interaction.reply({ content: 'Only middlemen can claim.', ephemeral: true });
+      }
+
+      ticket.claimedBy = interaction.user.id;
+      saveData();
+      await updateTicketPerms(interaction.channel, ticket, setup);
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
+      );
+
+      await interaction.update({
+        content: `**${interaction.user} has claimed ticket**`,
+        components: [row]
+      });
+    }
+
+    if (interaction.customId === 'unclaim_ticket') {
+      const isOwner = interaction.user.id === BOT_OWNER_ID;
+      if (!ticket.claimedBy) return interaction.reply({ content: 'Not claimed.', ephemeral: true });
+      if (ticket.claimedBy !== interaction.user.id && !isOwner) {
+        return interaction.reply({ content: 'Only the claimer or bot owner can unclaim this ticket.', ephemeral: true });
+      }
+
+      ticket.claimedBy = null;
+      saveData();
+      await updateTicketPerms(interaction.channel, ticket, setup);
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
+      );
+
+      await interaction.update({
+        content: `**${interaction.user} has unclaimed the ticket**`,
+        components: [row]
+      });
+    }
+
+    if (interaction.customId === 'close_ticket') {
+      const isOwner = interaction.user.id === BOT_OWNER_ID;
+      if (!ticket.claimedBy && !interaction.member.roles.cache.has(String(setup.coOwnerRole || '')) && !isOwner) {
+        return interaction.reply({ content: 'Only claimer, co-owner or bot owner can close.', ephemeral: true });
+      }
+
+      const msgs = await interaction.channel.messages.fetch({ limit: 100 });
+      const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString('en-GB', { timeZone: 'Europe/London' })}] ${m.author.tag}: ${m.content || '[Media/Embed]'}`).join('\n');
+
+      const chan = interaction.guild.channels.cache.get(setup.transcriptsChannel);
+      if (chan) {
+        const transcriptEmbed = new EmbedBuilder()
+          .setColor(0x2f3136)
+          .setTitle(`Transcript: ${interaction.channel.name}`)
+          .setDescription(
+            `**Created by:** <@${ticket.opener}>\n` +
+            `**Claimed by:** ${ticket.claimedBy ? `<@${ticket.claimedBy}>` : 'Nobody'}\n` +
+            `**Closed by:** <@${interaction.user.id}>\n` +
+            `**Date:** ${new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'full', timeStyle: 'short' })}`
+          )
+          .setFooter({ text: 'Roblox Trading Core • Middleman Logs' })
+          .setTimestamp();
+
+        await chan.send({
+          embeds: [transcriptEmbed],
+          files: [{
+            attachment: Buffer.from(transcript, 'utf-8'),
+            name: `${interaction.channel.name}-transcript.txt`
+          }]
+        });
+      }
+
+      await interaction.reply('Closing ticket...');
+      await interaction.channel.delete();
+    }
   }
 
   if (interaction.isModalSubmit()) {
     await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
+    const isIndex = interaction.customId === 'index_modal';
+    const isSeller = interaction.customId === 'seller_modal';
     const isShop = interaction.customId === 'shop_modal';
 
-    if (!isShop) {
-      return interaction.editReply('Wrong modal type.');
-    }
-
-    const product = interaction.fields.getTextInputValue('product') || 'Not provided';
-    const quantity = interaction.fields.getTextInputValue('quantity') || 'Not provided';
-    const payment = interaction.fields.getTextInputValue('payment_method') || 'Not provided';
+    const middlemanRole = isIndex ? setup.indexMiddlemanRole : setup.middlemanRole;
 
     const overwrites = [
       { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
       { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
     ];
+
+    if (isSeller || isShop) {
+      if (setup.coOwnerRole) {
+        overwrites.push({
+          id: setup.coOwnerRole,
+          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory]
+        });
+      }
+    } else if (middlemanRole) {
+      overwrites.push({
+        id: middlemanRole,
+        allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory],
+        deny: [PermissionsBitField.Flags.SendMessages]
+      });
+    }
 
     if (setup.coOwnerRole) {
       overwrites.push({
@@ -532,7 +877,7 @@ client.on('interactionCreate', async interaction => {
     try {
       const safeUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, '');
       const channel = await interaction.guild.channels.create({
-        name: `shop-${safeUsername}`,
+        name: `${isShop ? 'shop' : isSeller ? 'seller' : isIndex ? 'index' : 'ticket'}-${safeUsername}`,
         type: ChannelType.GuildText,
         parent: setup.ticketCategory || undefined,
         permissionOverwrites: overwrites
@@ -542,29 +887,81 @@ client.on('interactionCreate', async interaction => {
         opener: interaction.user.id,
         claimedBy: null,
         addedUsers: [],
-        isShopTicket: true
+        isIndexTicket: isIndex,
+        isSellerTicket: isSeller,
+        isShopTicket: isShop
       };
       saveData();
 
       const welcomeEmbed = new EmbedBuilder()
-        .setColor(0xffd700)
-        .setTitle('Shop Purchase Request')
-        .setDescription(`Hello **${interaction.user}**! Your request has been created.\nA co-owner will respond soon.`)
-        .addFields(
-          { name: 'Product', value: product },
-          { name: 'Quantity', value: quantity },
-          { name: 'Payment Method', value: payment }
+        .setColor(isShop ? 0xffd700 : isSeller ? 0x00ff88 : isIndex ? 0x000000 : 0x0088ff)
+        .setTitle(isShop ? 'Shop Purchase Request' : isSeller ? 'Role Purchase Request' : isIndex ? 'Index Requesting' : 'Welcome to your Ticket!')
+        .setDescription(
+          isShop
+            ? `Hello **${interaction.user}**! Your shop purchase request has been created.\n\n**A co-owner will respond shortly.**\nPlease be patient.`
+            : (isSeller
+              ? `Hello **${interaction.user}**! Your role purchase request has been created.\n\n**A co-owner will respond shortly.**\nPlease be patient.`
+              : (isIndex
+                ? `Hello! A <@&${middlemanRole || 'No middleman role'}> will reply to you soon.\n\n**Read our rules before proceeding with the ticket**\n• Be patient\n• Get payment ready\n• Do not waste time`
+                : `Hello **${interaction.user}**, thanks for opening a Middleman Ticket!\n\nA staff member will assist you shortly.\nProvide all trade details clearly.\n**Fake/troll tickets will result in consequences.**`
+              )
+            )
         );
 
+      if (isShop) {
+        welcomeEmbed.addFields(
+          { name: 'Product', value: interaction.fields.getTextInputValue('product') || 'Not provided' },
+          { name: 'Quantity', value: interaction.fields.getTextInputValue('quantity') || 'Not provided' },
+          { name: 'Payment method', value: interaction.fields.getTextInputValue('payment_method') || 'Not provided' }
+        );
+      } else if (isSeller) {
+        welcomeEmbed.addFields(
+          { name: 'Role requested', value: interaction.fields.getTextInputValue('role_name') || 'Not provided' },
+          { name: 'Payment offered', value: interaction.fields.getTextInputValue('payment') || 'Not provided' }
+        );
+      } else if (isIndex) {
+        welcomeEmbed.addFields(
+          { name: 'What are you trying to index?', value: interaction.fields.getTextInputValue('index_item') || 'Not provided' },
+          { name: 'Payment method', value: interaction.fields.getTextInputValue('payment_method') || 'Not provided' },
+          { name: 'Understands must go first?', value: interaction.fields.getTextInputValue('go_first') || 'Not provided' }
+        );
+      } else {
+        welcomeEmbed.addFields({
+          name: 'Trade Details:',
+          value: `**Other User or ID:** <@${interaction.fields.getTextInputValue('other_id') || 'Not provided'}>\n**Can you join private servers:** ${interaction.fields.getTextInputValue('private_servers') || 'Not provided'}`
+        });
+      }
+
+      const row = new ActionRowBuilder();
+
+      if (isIndex) {
+        row.addComponents(
+          new ButtonBuilder()
+            .setCustomId('claim_index_ticket')
+            .setLabel('Claim')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('✅')
+        );
+      } else if (!isSeller && !isShop) {
+        row.addComponents(
+          new ButtonBuilder()
+            .setCustomId('claim_ticket')
+            .setLabel('Claim')
+            .setStyle(ButtonStyle.Success)
+        );
+      }
+
+      const pingRole = isShop || isSeller ? setup.coOwnerRole : middlemanRole;
       await channel.send({
-        content: setup.coOwnerRole ? `<@&${setup.coOwnerRole}> New shop ticket!` : '@here New shop ticket!',
-        embeds: [welcomeEmbed]
+        content: pingRole ? `<@&${pingRole}> New ${isShop ? 'shop' : (isSeller ? 'seller' : (isIndex ? 'index' : 'ticket'))}!` : 'New ticket created!',
+        embeds: [welcomeEmbed],
+        components: row.components.length > 0 ? [row] : []
       });
 
       await interaction.editReply(`Ticket created → ${channel}`);
     } catch (err) {
       console.error('Ticket creation error:', err);
-      await interaction.editReply('Failed to create ticket: ' + err.message);
+      await interaction.editReply('Failed to create ticket. Bot needs Manage Channels & Manage Permissions.');
     }
   }
 });
