@@ -558,32 +558,34 @@ client.on('messageCreate', async message => {
   }
 });
 
-// Interaction handler
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton() && !interaction.isModalSubmit() && !interaction.isStringSelectMenu()) return;
 
-  const setup = data.guilds[interaction.guild.id]?.setup || {};
+  const setup = data.guilds[interaction.guild?.id]?.setup || {};
   const ticket = data.tickets[interaction.channel?.id];
 
-  try {
-    // String select menu (support/report)
-    if (interaction.isStringSelectMenu() && interaction.customId === 'support_ticket_select') {
-      const value = interaction.values[0];
-      let modal;
+  // ----- Select Menu: Support Ticket Type -----
+  if (interaction.isStringSelectMenu() && interaction.customId === 'support_ticket_select') {
+    const value = interaction.values[0];
+    let modal;
 
-      if (value === 'report') {
-        modal = new ModalBuilder().setCustomId('report_modal').setTitle('Report Ticket');
-        modal.addComponents(
+    if (value === 'report') {
+      modal = new ModalBuilder()
+        .setCustomId('report_modal')
+        .setTitle('Report Ticket')
+        .addComponents(
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('who_report').setLabel('Who do you wanna report?').setStyle(TextInputStyle.Short).setRequired(true)
+            new TextInputBuilder().setCustomId('who_report').setLabel('Who do you want to report?').setStyle(TextInputStyle.Short).setRequired(true)
           ),
           new ActionRowBuilder().addComponents(
             new TextInputBuilder().setCustomId('description').setLabel('Description').setStyle(TextInputStyle.Paragraph).setRequired(true)
           )
         );
-      } else if (value === 'support') {
-        modal = new ModalBuilder().setCustomId('support_modal').setTitle('Support Ticket');
-        modal.addComponents(
+    } else if (value === 'support') {
+      modal = new ModalBuilder()
+        .setCustomId('support_modal')
+        .setTitle('Support Ticket')
+        .addComponents(
           new ActionRowBuilder().addComponents(
             new TextInputBuilder().setCustomId('help_with').setLabel('What do you need help with?').setStyle(TextInputStyle.Short).setRequired(true)
           ),
@@ -591,58 +593,110 @@ client.on('interactionCreate', async interaction => {
             new TextInputBuilder().setCustomId('description').setLabel('Description').setStyle(TextInputStyle.Paragraph).setRequired(true)
           )
         );
-      }
-
-      if (modal) await interaction.showModal(modal);
-      return;
     }
 
-    // Button interactions
-    if (interaction.isButton()) {
-      const customId = interaction.customId;
+    if (modal) await interaction.showModal(modal);
+    return;
+  }
 
-      // Example: request ticket
-      if (customId.startsWith('request_')) {
-        // handle modals here, e.g. request_ticket, request_index, etc.
-        // ... your modal logic ...
-        return;
-      }
+  // ----- Button Interaction: Request Ticket / Shop / Index -----
+  if (interaction.isButton() && interaction.customId.startsWith('request_')) {
+    let modal;
 
-      // Middleman buttons
-      if (customId === 'join_hitter') {
-        const guild = interaction.guild;
-        const member = interaction.member;
-        const hitterRoleId = setup.hitterRole;
-        if (!hitterRoleId) return interaction.reply({ content: 'Hitter role not set.', ephemeral: true });
-        const role = guild.roles.cache.get(hitterRoleId);
-        if (!role) return interaction.reply({ content: 'Hitter role not found.', ephemeral: true });
-        if (!member.roles.cache.has(hitterRoleId)) await member.roles.add(role);
-        await interaction.reply({ content: `${interaction.user} now has the Hitter role!` });
-        return;
-      }
+    switch (interaction.customId) {
+      case 'request_ticket':
+        modal = new ModalBuilder()
+          .setCustomId('ticket_modal')
+          .setTitle('Trade Ticket Form')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('other_id').setLabel("Other person's ID / username?").setStyle(TextInputStyle.Short).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('trade_desc').setLabel('Describe the trade').setStyle(TextInputStyle.Paragraph).setRequired(true)
+            )
+          );
+        break;
+
+      case 'request_index':
+        modal = new ModalBuilder()
+          .setCustomId('index_modal')
+          .setTitle('Request Indexing Service')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('index_item').setLabel('What are you trying to index?').setStyle(TextInputStyle.Short).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('payment_method').setLabel('Payment method?').setStyle(TextInputStyle.Short).setRequired(true)
+            )
+          );
+        break;
+
+      case 'request_seller':
+        modal = new ModalBuilder()
+          .setCustomId('seller_modal')
+          .setTitle('Role Purchase Request')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('role_name').setLabel('Role you want to buy?').setStyle(TextInputStyle.Short).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('payment').setLabel('Payment offered?').setStyle(TextInputStyle.Short).setRequired(true)
+            )
+          );
+        break;
+
+      case 'request_shop':
+        modal = new ModalBuilder()
+          .setCustomId('shop_modal')
+          .setTitle('Shop Purchase Request')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('product').setLabel('Product you want?').setStyle(TextInputStyle.Short).setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('quantity').setLabel('Quantity?').setStyle(TextInputStyle.Short).setRequired(true)
+            )
+          );
+        break;
     }
 
-    // Modal submit
-    if (interaction.isModalSubmit()) {
+    if (modal) await interaction.showModal(modal);
+    return;
+  }
+
+  // ----- Modal Submit -----
+  if (interaction.isModalSubmit()) {
+    try {
       await interaction.deferReply({ ephemeral: true });
 
-      // Example: ticket creation logic
-      // const createdChannel = await interaction.guild.channels.create({ ... });
-      // await interaction.editReply({ content: `Ticket created → ${createdChannel}` });
+      // Example: create ticket channel (replace with your own logic)
+      const createdChannel = await interaction.guild.channels.create({
+        name: `ticket-${interaction.user.username}`,
+        type: ChannelType.GuildText,
+        parent: setup.ticketCategory || undefined,
+        permissionOverwrites: [
+          { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+          { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
+        ]
+      });
 
-      await interaction.editReply({ content: `Modal submitted successfully.` });
-      return;
-    }
+      // Save ticket info
+      data.tickets[createdChannel.id] = {
+        opener: interaction.user.id,
+        addedUsers: [],
+        isReportTicket: interaction.customId === 'report_modal',
+        isSupportTicket: interaction.customId === 'support_modal',
+      };
+      saveData();
 
-  } catch (err) {
-    console.error('[INTERACTION ERROR]', err.stack || err);
-    if (interaction.deferred || interaction.replied) {
-      await interaction.editReply({ content: `Error: ${err.message || 'Unknown error'}` }).catch(() => {});
-    } else {
-      await interaction.reply({ content: `Error: ${err.message || 'Unknown error'}`, ephemeral: true }).catch(() => {});
+      await interaction.editReply({ content: `Ticket created → ${createdChannel}` });
+    } catch (err) {
+      console.error('[MODAL ERROR]', err.stack || err);
+      await interaction.editReply({ content: `Error creating ticket: ${err.message || 'Unknown error'}` }).catch(() => {});
     }
   }
 });
 
-// --- VERY LAST LINE ---
+// ===== LOGIN BOT =====
 client.login(process.env.TOKEN);
