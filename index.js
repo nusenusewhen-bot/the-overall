@@ -743,7 +743,7 @@ client.on('interactionCreate', async interaction => {
 
       // ... your modal handling code for ticket, seller, shop, report, support, index ...
 
-      await interaction.editReply({ content: `Ticket created → ${channel}` });
+      await interaction.editReply({ content: `Ticket created → ${channel || 'unknown channel'}` });
     } catch (err) {
       console.error('[MODAL ERROR]', err);
       await interaction.editReply({ content: 'Error creating ticket.' }).catch(() => {});
