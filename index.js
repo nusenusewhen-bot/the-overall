@@ -705,10 +705,12 @@ client.on('interactionCreate', async interaction => {
       } else {
         await interaction.deferReply({ ephemeral: true });
       }
-    } catch (e) {
-      console.error('Defer failed:', e);
+    } catch (deferErr) {
+      console.error('[DEFER ERROR]', deferErr.message);
+      return;
     }
 
+    // Request ticket buttons (modals)
     if (interaction.customId === 'request_ticket') {
       const modal = new ModalBuilder()
         .setCustomId('ticket_modal')
@@ -738,12 +740,103 @@ client.on('interactionCreate', async interaction => {
         )
       );
 
-      await interaction.showModal(modal).catch(e => console.error('Modal show failed:', e));
+      await interaction.showModal(modal).catch(e => console.error('[SHOW_MODAL ERROR]', e));
       return;
     }
 
-    // ... other request buttons (index, seller, shop) ...
+    if (interaction.customId === 'request_index') {
+      const modal = new ModalBuilder()
+        .setCustomId('index_modal')
+        .setTitle('Request Indexing Service');
 
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('index_item')
+            .setLabel('What are you trying to index?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('payment_method')
+            .setLabel('What is your payment method?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('go_first')
+            .setLabel('You understand you must go first?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        )
+      );
+
+      await interaction.showModal(modal).catch(e => console.error('[SHOW_MODAL ERROR]', e));
+      return;
+    }
+
+    if (interaction.customId === 'request_seller') {
+      const modal = new ModalBuilder()
+        .setCustomId('seller_modal')
+        .setTitle('Role Purchase Request');
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('role_name')
+            .setLabel('What role are you buying?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('payment')
+            .setLabel('What are you giving as payment?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        )
+      );
+
+      await interaction.showModal(modal).catch(e => console.error('[SHOW_MODAL ERROR]', e));
+      return;
+    }
+
+    if (interaction.customId === 'request_shop') {
+      const modal = new ModalBuilder()
+        .setCustomId('shop_modal')
+        .setTitle('Shop Purchase Request');
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('product')
+            .setLabel('Product you want to buy?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('quantity')
+            .setLabel('Quantity you want?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('payment_method')
+            .setLabel('Payment method?')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+        )
+      );
+
+      await interaction.showModal(modal).catch(e => console.error('[SHOW_MODAL ERROR]', e));
+      return;
+    }
+
+    // Claim button
     if (interaction.customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.editReply({ content: 'Already claimed.', components: [] });
 
@@ -769,8 +862,10 @@ client.on('interactionCreate', async interaction => {
       });
 
       await interaction.channel.send(`**${interaction.user} has claimed the ticket**`).catch(() => {});
+      return;
     }
 
+    // Unclaim button
     if (interaction.customId === 'unclaim_ticket') {
       const isOwner = interaction.user.id === BOT_OWNER_ID;
       if (!ticket.claimedBy) return interaction.editReply({ content: 'Not claimed.', components: [] });
@@ -791,8 +886,10 @@ client.on('interactionCreate', async interaction => {
         content: `**Ticket unclaimed by ${interaction.user}**`,
         components: [row]
       });
+      return;
     }
 
+    // Close button
     if (interaction.customId === 'close_ticket') {
       const isOwner = interaction.user.id === BOT_OWNER_ID;
       if (!ticket.claimedBy && !interaction.member.roles.cache.has(String(setup.coOwnerRole || '')) && !isOwner) {
@@ -822,11 +919,12 @@ client.on('interactionCreate', async interaction => {
             attachment: Buffer.from(transcript, 'utf-8'),
             name: `${interaction.channel.name}-transcript.txt`
           }]
-        }).catch(e => console.error('Transcript send failed:', e));
+        }).catch(e => console.error('Transcript failed:', e));
       }
 
       await interaction.editReply('Closing ticket...');
-      await interaction.channel.delete().catch(e => console.error('Channel delete failed:', e));
+      await interaction.channel.delete().catch(e => console.error('Delete failed:', e));
+      return;
     }
 
     // Hitter buttons from $earn
@@ -835,80 +933,66 @@ client.on('interactionCreate', async interaction => {
       const member = interaction.member;
       const hitterRoleId = setup.hitterRole;
 
-      if (!hitterRoleId) {
-        return interaction.reply({ content: 'Hitter role not set yet. Run $shazam1.', ephemeral: true });
-      }
+      if (!hitterRoleId) return interaction.editReply({ content: 'Hitter role not set. Run $shazam1.', components: [] });
 
       const role = guild.roles.cache.get(hitterRoleId);
-      if (!role) {
-        return interaction.reply({ content: 'Hitter role not found in server.', ephemeral: true });
-      }
+      if (!role) return interaction.editReply({ content: 'Hitter role not found.', components: [] });
 
       if (member.roles.cache.has(hitterRoleId)) {
-        return interaction.reply({ content: 'You already have the Hitter role!', ephemeral: true });
+        return interaction.editReply({ content: 'You already have the Hitter role!', components: [] });
       }
 
       try {
         await member.roles.add(role);
 
-        const guideChannelId = setup.guideChannel;
-        const guideMention = guideChannelId ? `<#${guideChannelId}>` : '(guide channel not set)';
+        const guideMention = setup.guideChannel ? `<#${setup.guideChannel}>` : '(not set)';
+        const verificationLink = setup.verificationLink || '(not set)';
 
-        const verificationLink = setup.verificationLink || '(verification link not set)';
-
-        await interaction.reply({
+        await interaction.editReply({
           content: `Welcome to our hitting community ${member}! ` +
-                   `Make sure to read the guide here: ${guideMention}\n\n` +
-                   `Verify here first: ${verificationLink}`,
-          allowedMentions: { users: [member.id] }
+                   `Read the guide: ${guideMention}\n\n` +
+                   `Verify here: ${verificationLink}`,
+          components: []
         });
       } catch (err) {
         console.error('[JOIN_HITTER ERROR]', err);
-        await interaction.reply({ content: 'Failed to add role: ' + err.message, ephemeral: true });
+        await interaction.editReply({ content: 'Failed to add role.', components: [] });
       }
+      return;
     }
 
     if (interaction.customId === 'not_interested_hitter') {
-      await interaction.reply({
+      await interaction.editReply({
         content: `${interaction.user} was not interested in our offer.`,
-        allowedMentions: { users: [interaction.user.id] }
+        components: []
       });
+      return;
     }
 
     // $mmfee buttons
     if (interaction.customId === 'fee_50') {
-      await interaction.reply({
-        content: `${interaction.user} chosen to split 50/50`,
-        allowedMentions: { users: [interaction.user.id] }
-      });
+      await interaction.editReply({ content: `${interaction.user} chosen to split 50/50`, components: [] });
+      return;
     }
 
     if (interaction.customId === 'fee_100') {
-      await interaction.reply({
-        content: `${interaction.user} decided to pay 100%`,
-        allowedMentions: { users: [interaction.user.id] }
-      });
+      await interaction.editReply({ content: `${interaction.user} decided to pay 100%`, components: [] });
+      return;
     }
 
     // $mminfo buttons
     if (interaction.customId === 'understood_mm') {
-      await interaction.reply({
-        content: `${interaction.user} had understood`,
-        allowedMentions: { users: [interaction.user.id] }
-      });
+      await interaction.editReply({ content: `${interaction.user} had understood`, components: [] });
+      return;
     }
 
     if (interaction.customId === 'didnt_understand_mm') {
-      await interaction.reply({
-        content: `${interaction.user} didnt understand`,
-        allowedMentions: { users: [interaction.user.id] }
-      });
+      await interaction.editReply({ content: `${interaction.user} didnt understand`, components: [] });
+      return;
     }
   }
 
   if (interaction.isModalSubmit()) {
-    console.log(`[MODAL] Submitted: ${interaction.customId} by ${interaction.user.tag}`);
-
     try {
       await interaction.deferReply({ ephemeral: true });
 
@@ -951,6 +1035,9 @@ client.on('interactionCreate', async interaction => {
         type: ChannelType.GuildText,
         parent: setup.ticketCategory || undefined,
         permissionOverwrites: overwrites
+      }).catch(e => {
+        console.error('[CHANNEL CREATE ERROR]', e);
+        throw e;
       });
 
       data.tickets[channel.id] = {
@@ -1018,7 +1105,7 @@ client.on('interactionCreate', async interaction => {
         content: pingRole ? `<@&${pingRole}> New ${isShop ? 'shop' : (isSeller ? 'seller' : (isIndex ? 'index' : 'ticket'))}!` : 'New ticket created!',
         embeds: [welcomeEmbed],
         components: [row]
-      });
+      }).catch(e => console.error('[WELCOME SEND ERROR]', e));
 
       await interaction.editReply(`Ticket created → ${channel}`);
     } catch (err) {
