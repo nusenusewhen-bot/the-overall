@@ -774,7 +774,9 @@ if (interaction.isModalSubmit()) {
 
   } catch (err) {
     console.error('[MODAL ERROR]', err.stack || err);
-    await interaction.editReply({ content: `Error creating ticket: ${err.message || 'Unknown error'}` }).catch(() => {});
-  }
-}
-client.login(process.env.TOKEN);
+    await interaction.editReply({ content: `Error creating ticket: ${err.message || 'Unknown error'}` }).
+  } // end of interaction.isModalSubmit()
+
+}); // end of client.on('interactionCreate')
+
+client.login(process.env.TOKEN); // bot login
