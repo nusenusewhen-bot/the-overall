@@ -736,16 +736,23 @@ client.on('interactionCreate', async interaction => {
     }
   }
 
-  // Modal submit
-  if (interaction.isModalSubmit()) {
-    try {
-      await interaction.deferReply({ ephemeral: true });
+ // Modal submit
+if (interaction.isModalSubmit()) {
+  try {
+    await interaction.deferReply({ ephemeral: true });
 
-      // ... your modal handling code for ticket, seller, shop, report, support, index ...
+    // === Your existing modal handling logic goes here ===
+    // Make sure you define `createdChannel` only inside this try block
+    // Example:
+    // const createdChannel = await interaction.guild.channels.create({ ... });
 
-      await interaction.editReply({ content: `Ticket created → ${createdChannel}` });
-    }
+    // SUCCESS reply
+    await interaction.editReply({ content: `Ticket created → ${createdChannel}` });
+
+  } catch (err) {
+    console.error('[MODAL ERROR]', err.stack || err);
+    await interaction.editReply({ content: `Error creating ticket: ${err.message || 'Unknown error'}` }).catch(() => {});
   }
-});
+}
 
 client.login(process.env.TOKEN);
