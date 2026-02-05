@@ -142,7 +142,7 @@ async function updateTicketPerms(channel, ticket, setup) {
       }).catch(() => {});
     });
   } catch (err) {
-    console.error('Perms error:', err);
+    console.error('[PERMS UPDATE ERROR]', err.message || err);
   }
 }
 
@@ -326,37 +326,24 @@ client.on('messageCreate', async message => {
       .setTitle('Bot Commands')
       .setDescription('Prefix: $')
       .addFields(
-        {
-          name: 'Setup',
-          value: '$shazam — Ticket setup\n$shazam1 — Middleman setup (reply 2 after redeem)'
+        { name: 'Setup', value: '$shazam — Ticket setup\n$shazam1 — Middleman setup (reply 2 after redeem)' },
+        { name: 'Middleman Commands', value:
+          '$earn\n' +
+          '$mmfee\n' +
+          '$mminfo\n' +
+          '$vouches [@user]\n' +
+          '$vouch @user\n' +
+          '$setvouches @user <number>'
         },
-        {
-          name: 'Middleman Commands',
-          value:
-            '$earn\n' +
-            '$mmfee\n' +
-            '$mminfo\n' +
-            '$vouches [@user]\n' +
-            '$vouch @user\n' +
-            '$setvouches @user <number>'
+        { name: 'Ticket Commands', value:
+          '$ticket1\n' +
+          '$index\n' +
+          '$seller\n' +
+          '$shop\n' +
+          'Inside tickets: $add, $transfer, $claim, $unclaim, $close'
         },
-        {
-          name: 'Ticket Commands',
-          value:
-            '$ticket1\n' +
-            '$index\n' +
-            '$seller\n' +
-            '$shop\n' +
-            'Inside tickets: $add, $transfer, $claim, $unclaim, $close'
-        },
-        {
-          name: 'General',
-          value: '$afk <reason>\n$help'
-        },
-        {
-          name: 'Owner',
-          value: '$dm all <message>'
-        }
+        { name: 'General', value: '$afk <reason>\n$help' },
+        { name: 'Owner', value: '$dm all <message>' }
       );
 
     await message.reply({ embeds: [embed] });
@@ -655,7 +642,8 @@ client.on('messageCreate', async message => {
       ticket.claimedBy = message.author.id;
       saveData();
       await updateTicketPerms(message.channel, ticket, setup);
-      return message.reply(`**Ticket claimed by ${message.author}**`);
+      message.channel.send(`**${message.author} has claimed the ticket**`);
+      return;
     }
 
     if (cmd === 'unclaim') {
@@ -665,7 +653,8 @@ client.on('messageCreate', async message => {
       ticket.claimedBy = null;
       saveData();
       await updateTicketPerms(message.channel, ticket, setup);
-      return message.reply(`**Ticket unclaimed**`);
+      message.channel.send(`**Ticket unclaimed by ${message.author}**`);
+      return;
     }
 
     if (cmd === 'close') {
@@ -710,7 +699,15 @@ client.on('interactionCreate', async interaction => {
   const ticket = data.tickets[interaction.channel?.id];
 
   if (interaction.isButton()) {
-    // Existing ticket buttons (claim, unclaim, close, request_*) ...
+    try {
+      if (['claim_ticket', 'unclaim_ticket', 'close_ticket'].includes(interaction.customId)) {
+        await interaction.deferUpdate();
+      } else {
+        await interaction.deferReply({ ephemeral: true });
+      }
+    } catch (e) {
+      console.error('Defer failed:', e);
+    }
 
     if (interaction.customId === 'request_ticket') {
       const modal = new ModalBuilder()
@@ -741,54 +738,56 @@ client.on('interactionCreate', async interaction => {
         )
       );
 
-      await interaction.showModal(modal);
+      await interaction.showModal(modal).catch(e => console.error('Modal show failed:', e));
       return;
     }
 
     // ... other request buttons (index, seller, shop) ...
 
     if (interaction.customId === 'claim_ticket') {
-      if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
+      if (ticket.claimedBy) return interaction.editReply({ content: 'Already claimed.', components: [] });
 
       const hasMM = setup.middlemanRole && interaction.member.roles.cache.has(String(setup.middlemanRole));
       const hasIndexMM = setup.indexMiddlemanRole && interaction.member.roles.cache.has(String(setup.indexMiddlemanRole));
 
       if (!hasMM && !hasIndexMM) {
-        return interaction.reply({ content: 'Only middlemen can claim this ticket.', ephemeral: true });
+        return interaction.editReply({ content: 'Only middlemen can claim this ticket.', components: [] });
       }
 
       ticket.claimedBy = interaction.user.id;
       saveData();
-      await updateTicketPerms(interaction.channel, ticket, setup);
+      await updateTicketPerms(interaction.channel, ticket, setup).catch(e => console.error('Perms error on claim:', e));
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('unclaim_ticket').setLabel('Unclaim').setStyle(ButtonStyle.Danger),
         new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
       );
 
-      await interaction.update({
+      await interaction.editReply({
         content: `**${interaction.user} has claimed the ticket**`,
         components: [row]
       });
+
+      await interaction.channel.send(`**${interaction.user} has claimed the ticket**`).catch(() => {});
     }
 
     if (interaction.customId === 'unclaim_ticket') {
       const isOwner = interaction.user.id === BOT_OWNER_ID;
-      if (!ticket.claimedBy) return interaction.reply({ content: 'Not claimed.', ephemeral: true });
+      if (!ticket.claimedBy) return interaction.editReply({ content: 'Not claimed.', components: [] });
       if (ticket.claimedBy !== interaction.user.id && !isOwner) {
-        return interaction.reply({ content: 'Only the claimer or bot owner can unclaim this ticket.', ephemeral: true });
+        return interaction.editReply({ content: 'Only the claimer or bot owner can unclaim this ticket.', components: [] });
       }
 
       ticket.claimedBy = null;
       saveData();
-      await updateTicketPerms(interaction.channel, ticket, setup);
+      await updateTicketPerms(interaction.channel, ticket, setup).catch(e => console.error('Perms error on unclaim:', e));
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
       );
 
-      await interaction.update({
+      await interaction.editReply({
         content: `**Ticket unclaimed by ${interaction.user}**`,
         components: [row]
       });
@@ -797,10 +796,10 @@ client.on('interactionCreate', async interaction => {
     if (interaction.customId === 'close_ticket') {
       const isOwner = interaction.user.id === BOT_OWNER_ID;
       if (!ticket.claimedBy && !interaction.member.roles.cache.has(String(setup.coOwnerRole || '')) && !isOwner) {
-        return interaction.reply({ content: 'Only claimer, co-owner or bot owner can close.', ephemeral: true });
+        return interaction.editReply({ content: 'Only claimer, co-owner or bot owner can close.', components: [] });
       }
 
-      const msgs = await interaction.channel.messages.fetch({ limit: 100 });
+      const msgs = await interaction.channel.messages.fetch({ limit: 100 }).catch(() => []);
       const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString('en-GB', { timeZone: 'Europe/London' })}] ${m.author.tag}: ${m.content || '[Media/Embed]'}`).join('\n');
 
       const chan = interaction.guild.channels.cache.get(setup.transcriptsChannel);
@@ -823,11 +822,11 @@ client.on('interactionCreate', async interaction => {
             attachment: Buffer.from(transcript, 'utf-8'),
             name: `${interaction.channel.name}-transcript.txt`
           }]
-        });
+        }).catch(e => console.error('Transcript send failed:', e));
       }
 
-      await interaction.reply('Closing ticket...');
-      await interaction.channel.delete();
+      await interaction.editReply('Closing ticket...');
+      await interaction.channel.delete().catch(e => console.error('Channel delete failed:', e));
     }
 
     // Hitter buttons from $earn
@@ -908,9 +907,11 @@ client.on('interactionCreate', async interaction => {
   }
 
   if (interaction.isModalSubmit()) {
-    await interaction.deferReply({ ephemeral: true }).catch(() => {});
+    console.log(`[MODAL] Submitted: ${interaction.customId} by ${interaction.user.tag}`);
 
     try {
+      await interaction.deferReply({ ephemeral: true });
+
       const isIndex = interaction.customId === 'index_modal';
       const isSeller = interaction.customId === 'seller_modal';
       const isShop = interaction.customId === 'shop_modal';
@@ -1021,7 +1022,7 @@ client.on('interactionCreate', async interaction => {
 
       await interaction.editReply(`Ticket created → ${channel}`);
     } catch (err) {
-      console.error('[MODAL ERROR]', err);
+      console.error('[MODAL ERROR]', err.stack || err);
       await interaction.editReply({ content: `Error creating ticket: ${err.message || 'Unknown error'}` }).catch(() => {});
     }
   }
