@@ -200,8 +200,8 @@ client.on('messageCreate', async message => {
     data.redeemPending[userId] = true;
     saveData();
 
-    message.reply(`**${type} key activated!**\nReply **1** (Ticket) or **2** (Middleman) now.`);
-    try { await message.author.send(`**Redeemed ${type}!**\nReply **1** or **2** in channel.`); } catch {}
+    message.reply(`**Key activated!**\nReply **1** (Ticket mode) or **2** (Middleman mode) now.`);
+    try { await message.author.send(`**Key redeemed!**\nReply **1** or **2** in channel.`); } catch {}
     return;
   }
 
@@ -384,7 +384,7 @@ client.on('messageCreate', async message => {
     return message.reply({ embeds: [embed], components: [row] });
   }
 
-  // $seller, $shop, $index (already guarded above)
+  // $seller
   if (cmd === 'seller') {
     const embed = new EmbedBuilder()
       .setColor(0x00ff88)
@@ -399,6 +399,7 @@ client.on('messageCreate', async message => {
     return message.reply({ embeds: [embed], components: [row] });
   }
 
+  // $shop
   if (cmd === 'shop') {
     const embed = new EmbedBuilder()
       .setColor(0xffd700)
@@ -413,6 +414,7 @@ client.on('messageCreate', async message => {
     return message.reply({ embeds: [embed], components: [row] });
   }
 
+  // $index
   if (cmd === 'index') {
     const embed = new EmbedBuilder()
       .setColor(0x000000)
@@ -436,13 +438,14 @@ client.on('messageCreate', async message => {
     return message.reply({ embeds: [embed], components: [row] });
   }
 
-  // $shazam and $shazam1
+  // $shazam
   if (cmd === 'shazam') {
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
 
     await message.reply('**Ticket setup started.** Answer questions. "cancel" to stop.');
 
-    let ans = await askQuestion(message.channel, userId, 'Transcripts channel ID (numbers):', a => /^\d+$/.test(a));
+    let ans;
+    ans = await askQuestion(message.channel, userId, 'Transcripts channel ID (numbers):', a => /^\d+$/.test(a));
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.transcriptsChannel = ans;
 
@@ -479,6 +482,7 @@ client.on('messageCreate', async message => {
     return;
   }
 
+  // $shazam1
   if (cmd === 'shazam1') {
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
     if (!hasMiddlemanMode(userId)) return message.reply('This command is only for middleman mode. Redeem and reply **2**.');
@@ -540,7 +544,7 @@ client.on('messageCreate', async message => {
       return message.reply(`Added ${targetUser} to the ticket.`);
     }
 
-    // transfer, claim, unclaim, close ... (add your existing logic here)
+    // transfer, claim, unclaim, close logic here...
   }
 });
 
@@ -573,7 +577,7 @@ client.on('interactionCreate', async interaction => {
     return;
   }
 
-  // Request buttons
+  // Request buttons (ticket, index, seller, shop)
   if (interaction.isButton() && interaction.customId.startsWith('request_')) {
     let modal;
     if (interaction.customId === 'request_ticket') {
@@ -609,20 +613,71 @@ client.on('interactionCreate', async interaction => {
     return;
   }
 
-  // Other buttons (claim, unclaim, close, etc.)
+  // Middleman buttons (join_hitter, not_interested_hitter, fee_*, understood_*, didnt_*) — NO DEFER
   if (interaction.isButton()) {
+    const customId = interaction.customId;
+
+    // Simple reply buttons — NO defer
+    if (customId === 'join_hitter') {
+      const guild = interaction.guild;
+      const member = interaction.member;
+      const hitterRoleId = setup.hitterRole;
+
+      if (!hitterRoleId) return interaction.reply({ content: 'Hitter role not set.', ephemeral: true });
+
+      const role = guild.roles.cache.get(hitterRoleId);
+      if (!role) return interaction.reply({ content: 'Hitter role not found.', ephemeral: true });
+
+      if (member.roles.cache.has(hitterRoleId)) {
+        return interaction.reply({ content: 'You already have the Hitter role!', ephemeral: true });
+      }
+
+      try {
+        await member.roles.add(role);
+        const guideMention = setup.guideChannel ? `<#${setup.guideChannel}>` : '(not set)';
+        const verificationLink = setup.verificationLink || '(not set)';
+
+        return interaction.reply({
+          content: `Welcome to our hitting community ${member}! Read the guide: ${guideMention}\n\nVerify here: ${verificationLink}`,
+          ephemeral: true
+        });
+      } catch (err) {
+        console.error('[JOIN_HITTER ERROR]', err);
+        return interaction.reply({ content: 'Failed to add role.', ephemeral: true });
+      }
+    }
+
+    if (customId === 'not_interested_hitter') {
+      return interaction.reply({ content: `${interaction.user} was not interested in our offer.`, ephemeral: true });
+    }
+
+    if (customId === 'fee_50') {
+      return interaction.reply({ content: `${interaction.user} chosen to split 50/50`, ephemeral: true });
+    }
+
+    if (customId === 'fee_100') {
+      return interaction.reply({ content: `${interaction.user} decided to pay 100%`, ephemeral: true });
+    }
+
+    if (customId === 'understood_mm') {
+      return interaction.reply({ content: `${interaction.user} had understood`, ephemeral: true });
+    }
+
+    if (customId === 'didnt_understand_mm') {
+      return interaction.reply({ content: `${interaction.user} didnt understand`, ephemeral: true });
+    }
+
+    // Complex buttons — defer here
     try {
-      if (['claim_ticket', 'unclaim_ticket', 'close_ticket'].includes(interaction.customId)) {
+      if (['claim_ticket', 'unclaim_ticket', 'close_ticket'].includes(customId)) {
         await interaction.deferUpdate();
-      } else {
-        await interaction.deferReply({ ephemeral: true });
       }
     } catch (err) {
       console.error('[DEFER ERROR]', err);
       return;
     }
 
-    // claim/unclaim/close/join_hitter logic here (add your existing code)
+    // claim/unclaim/close logic here...
   }
 
   // Modal submit
@@ -630,7 +685,7 @@ client.on('interactionCreate', async interaction => {
     try {
       await interaction.deferReply({ ephemeral: true });
 
-      // ... your modal handling for report, support, ticket, seller, shop, index ...
+      // ... modal handling for report, support, ticket, seller, shop, index ...
 
       await interaction.editReply(`Ticket created → ${channel}`);
     } catch (err) {
