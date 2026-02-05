@@ -59,6 +59,7 @@ function saveData() {
   try {
     const serial = { ...data, redeemedUsers: Array.from(data.redeemedUsers) };
     fs.writeFileSync(DATA_FILE, JSON.stringify(serial, null, 2));
+    console.log('[DATA] Saved');
   } catch (err) {
     console.error('[DATA] Save failed:', err);
   }
@@ -698,6 +699,77 @@ client.on('interactionCreate', async interaction => {
   const setup = data.guilds[interaction.guild.id]?.setup || {};
   const ticket = data.tickets[interaction.channel?.id];
 
+  // ──────────────────────────────────────────────────────────────
+  // REQUEST BUTTONS (OPEN MODAL) — NO DEFER BEFORE showModal
+  // ──────────────────────────────────────────────────────────────
+  if (interaction.isButton() && interaction.customId.startsWith('request_')) {
+    try {
+      let modal = new ModalBuilder();
+
+      if (interaction.customId === 'request_ticket') {
+        modal.setCustomId('ticket_modal').setTitle('Trade Ticket Form');
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('other_id').setLabel("Other person's ID / username?").setStyle(TextInputStyle.Short).setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('trade_desc').setLabel('Describe the trade').setStyle(TextInputStyle.Paragraph).setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('private_servers').setLabel('Can both join private servers?').setStyle(TextInputStyle.Short).setRequired(false)
+          )
+        );
+      } else if (interaction.customId === 'request_index') {
+        modal.setCustomId('index_modal').setTitle('Request Indexing Service');
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('index_item').setLabel('What are you trying to index?').setStyle(TextInputStyle.Short).setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('payment_method').setLabel('What is your payment method?').setStyle(TextInputStyle.Short).setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('go_first').setLabel('You understand you must go first?').setStyle(TextInputStyle.Short).setRequired(true)
+          )
+        );
+      } else if (interaction.customId === 'request_seller') {
+        modal.setCustomId('seller_modal').setTitle('Role Purchase Request');
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('role_name').setLabel('What role are you buying?').setStyle(TextInputStyle.Short).setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('payment').setLabel('What are you giving as payment?').setStyle(TextInputStyle.Short).setRequired(true)
+          )
+        );
+      } else if (interaction.customId === 'request_shop') {
+        modal.setCustomId('shop_modal').setTitle('Shop Purchase Request');
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('product').setLabel('Product you want to buy?').setStyle(TextInputStyle.Short).setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('quantity').setLabel('Quantity you want?').setStyle(TextInputStyle.Short).setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('payment_method').setLabel('Payment method?').setStyle(TextInputStyle.Short).setRequired(true)
+          )
+        );
+      }
+
+      await interaction.showModal(modal);
+    } catch (err) {
+      console.error('[SHOW_MODAL ERROR]', err.message || err);
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: 'Failed to open form.', ephemeral: true }).catch(() => {});
+      }
+    }
+    return;
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // ALL OTHER BUTTONS — defer here
+  // ──────────────────────────────────────────────────────────────
   if (interaction.isButton()) {
     try {
       if (['claim_ticket', 'unclaim_ticket', 'close_ticket'].includes(interaction.customId)) {
@@ -710,132 +782,6 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Request ticket buttons (modals)
-    if (interaction.customId === 'request_ticket') {
-      const modal = new ModalBuilder()
-        .setCustomId('ticket_modal')
-        .setTitle('Trade Ticket Form');
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('other_id')
-            .setLabel("Other person's ID / username?")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('trade_desc')
-            .setLabel('Describe the trade')
-            .setStyle(TextInputStyle.Paragraph)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('private_servers')
-            .setLabel('Can both join private servers?')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false)
-        )
-      );
-
-      await interaction.showModal(modal).catch(e => console.error('[SHOW_MODAL ERROR]', e));
-      return;
-    }
-
-    if (interaction.customId === 'request_index') {
-      const modal = new ModalBuilder()
-        .setCustomId('index_modal')
-        .setTitle('Request Indexing Service');
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('index_item')
-            .setLabel('What are you trying to index?')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('payment_method')
-            .setLabel('What is your payment method?')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('go_first')
-            .setLabel('You understand you must go first?')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-        )
-      );
-
-      await interaction.showModal(modal).catch(e => console.error('[SHOW_MODAL ERROR]', e));
-      return;
-    }
-
-    if (interaction.customId === 'request_seller') {
-      const modal = new ModalBuilder()
-        .setCustomId('seller_modal')
-        .setTitle('Role Purchase Request');
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('role_name')
-            .setLabel('What role are you buying?')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('payment')
-            .setLabel('What are you giving as payment?')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-        )
-      );
-
-      await interaction.showModal(modal).catch(e => console.error('[SHOW_MODAL ERROR]', e));
-      return;
-    }
-
-    if (interaction.customId === 'request_shop') {
-      const modal = new ModalBuilder()
-        .setCustomId('shop_modal')
-        .setTitle('Shop Purchase Request');
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('product')
-            .setLabel('Product you want to buy?')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('quantity')
-            .setLabel('Quantity you want?')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('payment_method')
-            .setLabel('Payment method?')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-        )
-      );
-
-      await interaction.showModal(modal).catch(e => console.error('[SHOW_MODAL ERROR]', e));
-      return;
-    }
-
     // Claim button
     if (interaction.customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.editReply({ content: 'Already claimed.', components: [] });
@@ -843,9 +789,7 @@ client.on('interactionCreate', async interaction => {
       const hasMM = setup.middlemanRole && interaction.member.roles.cache.has(String(setup.middlemanRole));
       const hasIndexMM = setup.indexMiddlemanRole && interaction.member.roles.cache.has(String(setup.indexMiddlemanRole));
 
-      if (!hasMM && !hasIndexMM) {
-        return interaction.editReply({ content: 'Only middlemen can claim this ticket.', components: [] });
-      }
+      if (!hasMM && !hasIndexMM) return interaction.editReply({ content: 'Only middlemen can claim this ticket.', components: [] });
 
       ticket.claimedBy = interaction.user.id;
       saveData();
@@ -992,6 +936,9 @@ client.on('interactionCreate', async interaction => {
     }
   }
 
+  // ──────────────────────────────────────────────────────────────
+  // MODAL SUBMIT — ticket creation
+  // ──────────────────────────────────────────────────────────────
   if (interaction.isModalSubmit()) {
     try {
       await interaction.deferReply({ ephemeral: true });
@@ -1065,6 +1012,7 @@ client.on('interactionCreate', async interaction => {
             )
         );
 
+      // Add modal fields to embed
       if (isShop) {
         welcomeEmbed.addFields(
           { name: 'Product', value: interaction.fields.getTextInputValue('product') || 'Not provided' },
@@ -1090,14 +1038,8 @@ client.on('interactionCreate', async interaction => {
       }
 
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('claim_ticket')
-          .setLabel('Claim')
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId('close_ticket')
-          .setLabel('Close')
-          .setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
       );
 
       const pingRole = isShop || isSeller ? setup.coOwnerRole : middlemanRole;
@@ -1109,7 +1051,7 @@ client.on('interactionCreate', async interaction => {
 
       await interaction.editReply(`Ticket created → ${channel}`);
     } catch (err) {
-      console.error('[MODAL ERROR]', err.stack || err);
+      console.error('[MODAL SUBMIT ERROR]', err.stack || err);
       await interaction.editReply({ content: `Error creating ticket: ${err.message || 'Unknown error'}` }).catch(() => {});
     }
   }
