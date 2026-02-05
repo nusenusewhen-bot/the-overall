@@ -111,7 +111,6 @@ async function updateTicketPerms(channel, ticket, setup) {
       });
     }
 
-    // Staff role sees report & support tickets
     if ((ticket.isReportTicket || ticket.isSupportTicket) && setup.staffRole) {
       await channel.permissionOverwrites.edit(setup.staffRole, {
         ViewChannel: true,
@@ -174,7 +173,7 @@ client.on('messageCreate', async message => {
 
   if (!data.userModes[userId]) data.userModes[userId] = { ticket: false };
 
-  // Redeem reply
+  // Redeem reply (non-prefix)
   if (!message.content.startsWith(config.prefix) && data.redeemPending[userId]) {
     const content = message.content.trim().toLowerCase();
 
@@ -261,9 +260,10 @@ client.on('messageCreate', async message => {
       );
 
       await message.reply({ embeds: [embed], components: [row] });
+      return;
     }
 
-    else if (cmd === 'mmfee') {
+    if (cmd === 'mmfee') {
       embed = new EmbedBuilder()
         .setColor(0x00ff88)
         .setTitle('💰 Middleman Fee Guide')
@@ -284,9 +284,10 @@ client.on('messageCreate', async message => {
       );
 
       await message.reply({ embeds: [embed], components: [row] });
+      return;
     }
 
-    else if (cmd === 'mminfo') {
+    if (cmd === 'mminfo') {
       embed = new EmbedBuilder()
         .setColor(0x000000)
         .setTitle('Middleman Service Info')
@@ -305,15 +306,16 @@ client.on('messageCreate', async message => {
       );
 
       await message.reply({ embeds: [embed], components: [row] });
+      return;
     }
 
-    else if (cmd === 'vouches') {
+    if (cmd === 'vouches') {
       const target = message.mentions.users.first() || message.author;
       const count = data.vouches[target.id] || 0;
       return message.reply(`**${target.tag}** has **${count}** vouches.`);
     }
 
-    else if (cmd === 'vouch') {
+    if (cmd === 'vouch') {
       const target = message.mentions.users.first();
       if (!target) return message.reply('Usage: $vouch @user');
       data.vouches[target.id] = (data.vouches[target.id] || 0) + 1;
@@ -321,7 +323,7 @@ client.on('messageCreate', async message => {
       return message.reply(`Vouch added! **${target.tag}** now has ${data.vouches[target.id]} vouches.`);
     }
 
-    else if (cmd === 'setvouches') {
+    if (cmd === 'setvouches') {
       const target = message.mentions.users.first();
       const num = parseInt(args[1]);
       if (!target || isNaN(num)) return message.reply('Usage: $setvouches @user <number>');
@@ -362,6 +364,7 @@ client.on('messageCreate', async message => {
     );
 
     await message.reply({ embeds: [embed], components: [row] });
+    return;
   }
 
   // $ticket1
@@ -391,6 +394,7 @@ client.on('messageCreate', async message => {
     );
 
     await message.reply({ embeds: [embed], components: [row] });
+    return;
   }
 
   // $seller
@@ -413,6 +417,7 @@ client.on('messageCreate', async message => {
     );
 
     await message.reply({ embeds: [embed], components: [row] });
+    return;
   }
 
   // $shop
@@ -443,9 +448,10 @@ client.on('messageCreate', async message => {
     );
 
     await message.reply({ embeds: [embed], components: [row] });
+    return;
   }
 
-  // $index (example)
+  // $index
   if (cmd === 'index') {
     const embed = new EmbedBuilder()
       .setColor(0x000000)
@@ -471,13 +477,14 @@ client.on('messageCreate', async message => {
     );
 
     await message.reply({ embeds: [embed], components: [row] });
+    return;
   }
 
   // $shazam
   if (cmd === 'shazam') {
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
 
-    await message.reply('**Ticket setup started.** Answer questions. "cancel" to stop.');
+    message.reply('**Ticket setup started.** Answer questions. Type "cancel" to stop.');
 
     let ans;
     ans = await askQuestion(message.channel, userId, 'Transcripts channel ID (numbers):', a => /^\d+$/.test(a));
@@ -544,9 +551,61 @@ client.on('messageCreate', async message => {
 
     saveData();
     message.reply('**Ticket setup complete!** Use $ticket1, $index, $seller, $shop or $support.');
+    return;
   }
 
-  // $shazam1 (keep as is or remove if not needed)
+  // $shazam1
+  if (cmd === 'shazam1') {
+    if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
+    if (!data.userModes[userId]?.middleman) {
+      return message.reply('This command is only for middleman mode. Redeem a key and reply **2** to activate middleman mode.');
+    }
+
+    message.reply('**Middleman setup started.** Answer questions. Type "cancel" to stop.');
+
+    let ans;
+
+    ans = await askQuestion(message.channel, userId, 'Middleman role ID (numbers only):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
+    setup.middlemanRole = ans;
+    message.reply(`Middleman role saved: \`${ans}\``);
+
+    ans = await askQuestion(message.channel, userId, 'Index Middleman role ID (numbers only):', a => /^\d+$/.test(a));
+    if (ans && ans.toLowerCase() !== 'cancel') {
+      setup.indexMiddlemanRole = ans;
+      saveData();
+      message.reply(`Index Middleman role saved: \`${ans}\``);
+    } else {
+      message.reply('Skipped index middleman role.');
+    }
+
+    ans = await askQuestion(message.channel, userId, 'Hitter role ID (numbers only):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
+    setup.hitterRole = ans;
+    message.reply(`Hitter role saved: \`${ans}\``);
+
+    ans = await askQuestion(message.channel, userId, 'Guide channel ID (numbers only):', a => /^\d+$/.test(a));
+    if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Setup cancelled.');
+    setup.guideChannel = ans;
+    message.reply(`Guide channel saved: \`${ans}\``);
+
+    ans = await askQuestion(message.channel, userId, 'Verification link (https://...) or type "skip":');
+    if (ans.toLowerCase() !== 'skip' && ans.toLowerCase() !== 'cancel') {
+      if (ans.startsWith('https://')) {
+        setup.verificationLink = ans;
+        saveData();
+        message.reply(`Verification link saved: \`${ans}\``);
+      } else {
+        message.reply('Invalid link — skipped.');
+      }
+    } else if (ans.toLowerCase() === 'skip') {
+      message.reply('Verification link skipped.');
+    }
+
+    saveData();
+    message.reply('**Middleman setup complete!** You can now use middleman commands ($earn, $mmfee, etc.).');
+    return;
+  }
 
   // Ticket channel commands
   const ticket = data.tickets[message.channel.id];
@@ -651,6 +710,7 @@ client.on('messageCreate', async message => {
 
       await message.reply('Closing ticket...');
       await message.channel.delete();
+      return;
     }
   }
 });
@@ -661,7 +721,7 @@ client.on('interactionCreate', async interaction => {
   const setup = data.guilds[interaction.guild.id]?.setup || {};
   const ticket = data.tickets[interaction.channel?.id];
 
-  // Support ticket select menu - NO DEFER BEFORE showModal
+  // Support ticket select menu
   if (interaction.isStringSelectMenu() && interaction.customId === 'support_ticket_select') {
     const value = interaction.values[0];
 
@@ -684,7 +744,10 @@ client.on('interactionCreate', async interaction => {
         )
       );
       await interaction.showModal(modal);
-    } else if (value === 'support') {
+      return;
+    }
+
+    if (value === 'support') {
       const modal = new ModalBuilder().setCustomId('support_modal').setTitle('Support Ticket');
       modal.addComponents(
         new ActionRowBuilder().addComponents(
@@ -703,11 +766,11 @@ client.on('interactionCreate', async interaction => {
         )
       );
       await interaction.showModal(modal);
+      return;
     }
-    return;
   }
 
-  // Ticket request buttons - NO DEFER BEFORE showModal
+  // Ticket request buttons
   if (interaction.isButton()) {
     const customId = interaction.customId;
 
@@ -776,7 +839,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Other buttons (claim, unclaim, close, join_hitter, etc.) - defer here
+    // Other buttons - defer here
     try {
       if (['claim_ticket', 'unclaim_ticket', 'close_ticket'].includes(customId)) {
         await interaction.deferUpdate();
@@ -788,7 +851,6 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Claim button
     if (customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.editReply({ content: 'Already claimed.', components: [] });
 
@@ -815,7 +877,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // ... unclaim, close, join_hitter, not_interested_hitter, fee_50, fee_100, understood_mm, didnt_understand_mm ...
+    // ... (unclaim, close, join_hitter, fee_50, fee_100, understood_mm, didnt_understand_mm - keep as before) ...
   }
 
   // MODAL SUBMIT
@@ -906,7 +968,6 @@ client.on('interactionCreate', async interaction => {
             )
         );
 
-      // Add modal fields
       if (isReport) {
         welcomeEmbed.addFields(
           { name: 'Who do you wanna report?', value: `<@${interaction.fields.getTextInputValue('who_report') || 'Not provided'}>` },
