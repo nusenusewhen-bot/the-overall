@@ -205,7 +205,16 @@ client.on('messageCreate', async message => {
     return;
   }
 
-  // Middleman commands — ignore if not activated
+  // Commands that require redeem only
+  const redeemRequiredCommands = ['ticket1', 'index', 'seller', 'shop', 'support'];
+
+  if (redeemRequiredCommands.includes(cmd)) {
+    if (!isRedeemed(userId)) {
+      return message.reply('You must redeem a key first.');
+    }
+  }
+
+  // Middleman commands — require redeem + middleman mode
   if (['earn', 'mmfee', 'mminfo', 'vouches', 'vouch', 'setvouches'].includes(cmd)) {
     if (!isRedeemed(userId) || !hasMiddlemanMode(userId)) return; // silent ignore
 
@@ -220,7 +229,16 @@ client.on('messageCreate', async message => {
       embed = new EmbedBuilder()
         .setColor(0xFF0000)
         .setTitle('Want to join us?')
-        .setDescription('You just got scammed! Wanna be a hitter like us? 😈\n\n1. Find victim in trading server\n2. Get them to use our MM service\n3. Middleman helps scam item/crypto/robux\n4. Split 50/50\n\nRead guide channel.\n\n**STAFF:** Click below to join the team!')
+        .setDescription(
+          'You just got scammed! Wanna be a hitter like us? 😈\n\n' +
+          '1. You find victim in trading server (for eg: ADM, MM2, PSX ETC.)\n' +
+          '2. You get the victim to use our middleman service\n' +
+          '3. Then the middleman will help you scam the item CRYPTO/ROBUX/INGAME ETC.\n' +
+          '4. Once done the middleman and you split the item 50/50\n\n' +
+          'Be sure to check the guide channel for everything you need to know.\n\n' +
+          '**STAFF IMPORTANT**\n' +
+          'If you\'re ready, click the button below to start and join the team!'
+        )
         .setFooter({ text: 'Hitter Recruitment' });
 
       row = new ActionRowBuilder().addComponents(
@@ -235,7 +253,15 @@ client.on('messageCreate', async message => {
       embed = new EmbedBuilder()
         .setColor(0x00ff88)
         .setTitle('💰 Middleman Fee Guide')
-        .setDescription('Fees reward MM time & risk.\n\n**Small trades**: Free\n**High-value**: Small fee (negotiable)\n\nAccepted: Robux • Items • Crypto • Cash\n\n**Split options**\n• 50/50 – both pay half\n• 100% – one side covers full')
+        .setDescription(
+          'Fees reward MM time & risk.\n\n' +
+          '**Small trades** (low value): **Free**\n' +
+          '**High-value trades**: Small fee (negotiable)\n\n' +
+          'Accepted: Robux • Items • Crypto • Cash\n\n' +
+          '**Split options**\n' +
+          '• **50/50** – both pay half\n' +
+          '• **100%** – one side covers full'
+        )
         .setFooter({ text: 'Choose below • Protects both parties' });
 
       row = new ActionRowBuilder().addComponents(
@@ -250,7 +276,12 @@ client.on('messageCreate', async message => {
       embed = new EmbedBuilder()
         .setColor(0x000000)
         .setTitle('Middleman Service Info')
-        .setDescription('A Middleman is a trusted staff member who ensures fair trades.\n\n**Example:** Trading 2k Robux for Adopt Me Crow?\nMM holds Crow until payment confirmed, then releases it.\n\n**Benefits:** Prevents scams, smooth transactions, secure for both sides.')
+        .setDescription(
+          'A Middleman is a trusted staff member who ensures fair trades.\n\n' +
+          '**Example:** Trading 2k Robux for Adopt Me Crow?\n' +
+          'MM holds Crow until payment confirmed, then releases it.\n\n' +
+          '**Benefits:** Prevents scams, smooth transactions, secure for both sides.'
+        )
         .setImage('https://raw.githubusercontent.com/nusenusewhen-bot/the-overall/main/image-34.png')
         .setFooter({ text: 'Middleman Service • Secure Trades' });
 
@@ -295,7 +326,7 @@ client.on('messageCreate', async message => {
       .addFields(
         { name: 'Setup', value: '$shazam — Ticket setup\n$shazam1 — Middleman setup' },
         { name: 'Middleman (needs mode + role)', value: '$earn\n$mmfee\n$mminfo\n$vouches [@user]\n$vouch @user\n$setvouches @user <number>' },
-        { name: 'Tickets (needs mode)', value: '$ticket1\n$index\n$seller\n$shop\n$support\nInside tickets: $add, $transfer, $claim, $unclaim, $close' },
+        { name: 'Tickets (needs redeem)', value: '$ticket1\n$index\n$seller\n$shop\n$support\nInside tickets: $add, $transfer, $claim, $unclaim, $close' },
         { name: 'General', value: '$help' },
         { name: 'Owner', value: '$dm all <message>' }
       );
@@ -328,7 +359,7 @@ client.on('messageCreate', async message => {
     return message.reply({ embeds: [embed], components: [row] });
   }
 
-  // $ticket1, $seller, $shop, $index (same as before)
+  // $ticket1
   if (cmd === 'ticket1') {
     const embed = new EmbedBuilder()
       .setColor(0x0088ff)
@@ -353,6 +384,7 @@ client.on('messageCreate', async message => {
     return message.reply({ embeds: [embed], components: [row] });
   }
 
+  // $seller, $shop, $index (already guarded above)
   if (cmd === 'seller') {
     const embed = new EmbedBuilder()
       .setColor(0x00ff88)
@@ -404,7 +436,7 @@ client.on('messageCreate', async message => {
     return message.reply({ embeds: [embed], components: [row] });
   }
 
-  // $shazam and $shazam1 (full setup flows)
+  // $shazam and $shazam1
   if (cmd === 'shazam') {
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
 
@@ -468,7 +500,7 @@ client.on('messageCreate', async message => {
     if (!ans || ans.toLowerCase() === 'cancel') return message.reply('Cancelled.');
     setup.guideChannel = ans;
 
-    ans = await askQuestion(message.channel, userId, 'Verification link (https://...) or "skip":');
+    ans = await askQuestion(message.channel, userId, 'Verification link (https://...) or type "skip":');
     if (ans.toLowerCase() !== 'skip' && ans.toLowerCase() !== 'cancel' && ans.startsWith('https://')) setup.verificationLink = ans;
 
     saveData();
@@ -492,6 +524,7 @@ client.on('messageCreate', async message => {
 
     if (cmd === 'add') {
       let targetUser = message.mentions.users.first();
+
       if (!targetUser && args[0]) {
         try {
           targetUser = await client.users.fetch(args[0]);
@@ -507,7 +540,7 @@ client.on('messageCreate', async message => {
       return message.reply(`Added ${targetUser} to the ticket.`);
     }
 
-    // transfer, claim, unclaim, close ... (same logic as before)
+    // transfer, claim, unclaim, close ... (add your existing logic here)
   }
 });
 
@@ -576,7 +609,7 @@ client.on('interactionCreate', async interaction => {
     return;
   }
 
-  // Other buttons (claim etc.)
+  // Other buttons (claim, unclaim, close, etc.)
   if (interaction.isButton()) {
     try {
       if (['claim_ticket', 'unclaim_ticket', 'close_ticket'].includes(interaction.customId)) {
@@ -589,7 +622,7 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // claim/unclaim/close logic here (same as before)
+    // claim/unclaim/close/join_hitter logic here (add your existing code)
   }
 
   // Modal submit
@@ -597,8 +630,7 @@ client.on('interactionCreate', async interaction => {
     try {
       await interaction.deferReply({ ephemeral: true });
 
-      // Modal handling logic here (report, support, seller, shop, ticket, index)
-      // ... (same as previous versions)
+      // ... your modal handling for report, support, ticket, seller, shop, index ...
 
       await interaction.editReply(`Ticket created → ${channel}`);
     } catch (err) {
