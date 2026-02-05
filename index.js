@@ -558,98 +558,91 @@ client.on('messageCreate', async message => {
   }
 });
 
+// Interaction handler
 client.on('interactionCreate', async interaction => {
   if (!interaction.isButton() && !interaction.isModalSubmit() && !interaction.isStringSelectMenu()) return;
 
-  const setup = data.guilds[interaction.guild?.id]?.setup || {};
+  const setup = data.guilds[interaction.guild.id]?.setup || {};
   const ticket = data.tickets[interaction.channel?.id];
 
-  // String select menu (support/report)
-  if (interaction.isStringSelectMenu() && interaction.customId === 'support_ticket_select') {
-    const value = interaction.values[0];
+  try {
+    // String select menu (support/report)
+    if (interaction.isStringSelectMenu() && interaction.customId === 'support_ticket_select') {
+      const value = interaction.values[0];
+      let modal;
 
-    let modal;
-    if (value === 'report') {
-      modal = new ModalBuilder()
-        .setCustomId('report_modal')
-        .setTitle('Report Ticket')
-        .addComponents(
+      if (value === 'report') {
+        modal = new ModalBuilder().setCustomId('report_modal').setTitle('Report Ticket');
+        modal.addComponents(
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId('who_report')
-              .setLabel('Who do you wanna report?')
-              .setStyle(TextInputStyle.Short)
-              .setRequired(true)
+            new TextInputBuilder().setCustomId('who_report').setLabel('Who do you wanna report?').setStyle(TextInputStyle.Short).setRequired(true)
           ),
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId('description')
-              .setLabel('Description')
-              .setStyle(TextInputStyle.Paragraph)
-              .setRequired(true)
+            new TextInputBuilder().setCustomId('description').setLabel('Description').setStyle(TextInputStyle.Paragraph).setRequired(true)
           )
         );
-    } else if (value === 'support') {
-      modal = new ModalBuilder()
-        .setCustomId('support_modal')
-        .setTitle('Support Ticket')
-        .addComponents(
+      } else if (value === 'support') {
+        modal = new ModalBuilder().setCustomId('support_modal').setTitle('Support Ticket');
+        modal.addComponents(
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId('help_with')
-              .setLabel('What do you need help with?')
-              .setStyle(TextInputStyle.Short)
-              .setRequired(true)
+            new TextInputBuilder().setCustomId('help_with').setLabel('What do you need help with?').setStyle(TextInputStyle.Short).setRequired(true)
           ),
           new ActionRowBuilder().addComponents(
-            new TextInputBuilder()
-              .setCustomId('description')
-              .setLabel('Description')
-              .setStyle(TextInputStyle.Paragraph)
-              .setRequired(true)
+            new TextInputBuilder().setCustomId('description').setLabel('Description').setStyle(TextInputStyle.Paragraph).setRequired(true)
           )
         );
+      }
+
+      if (modal) await interaction.showModal(modal);
+      return;
     }
 
-    if (modal) await interaction.showModal(modal);
-    return;
-  }
+    // Button interactions
+    if (interaction.isButton()) {
+      const customId = interaction.customId;
 
-  // Button interactions
-  if (interaction.isButton()) {
-    const customId = interaction.customId;
+      // Example: request ticket
+      if (customId.startsWith('request_')) {
+        // handle modals here, e.g. request_ticket, request_index, etc.
+        // ... your modal logic ...
+        return;
+      }
 
-    if (customId === 'join_hitter') {
-      const member = interaction.member;
-      const role = interaction.guild.roles.cache.get(setup.hitterRole);
-      if (!role) return interaction.reply({ content: 'Hitter role not found.', ephemeral: true });
-      if (!member.roles.cache.has(role.id)) await member.roles.add(role);
-      return interaction.reply({ content: `${interaction.user} now has the Hitter role!` });
+      // Middleman buttons
+      if (customId === 'join_hitter') {
+        const guild = interaction.guild;
+        const member = interaction.member;
+        const hitterRoleId = setup.hitterRole;
+        if (!hitterRoleId) return interaction.reply({ content: 'Hitter role not set.', ephemeral: true });
+        const role = guild.roles.cache.get(hitterRoleId);
+        if (!role) return interaction.reply({ content: 'Hitter role not found.', ephemeral: true });
+        if (!member.roles.cache.has(hitterRoleId)) await member.roles.add(role);
+        await interaction.reply({ content: `${interaction.user} now has the Hitter role!` });
+        return;
+      }
     }
 
-    // Add more button logic here if needed
-    return;
-  }
-
-  // Modal submission
-  if (interaction.isModalSubmit()) {
-    try {
+    // Modal submit
+    if (interaction.isModalSubmit()) {
       await interaction.deferReply({ ephemeral: true });
 
-      // === Your modal handling logic here ===
-      // Example:
+      // Example: ticket creation logic
       // const createdChannel = await interaction.guild.channels.create({ ... });
+      // await interaction.editReply({ content: `Ticket created → ${createdChannel}` });
 
-      await interaction.editReply({
-        content: `Ticket created → ${createdChannel || 'channel'}`
-      });
-    } catch (err) {
-      console.error('[MODAL ERROR]', err.stack || err);
-      await interaction.editReply({ content: `Error creating ticket: ${err.message || 'Unknown error'}` }).catch(() => {});
+      await interaction.editReply({ content: `Modal submitted successfully.` });
+      return;
     }
-    return;
+
+  } catch (err) {
+    console.error('[INTERACTION ERROR]', err.stack || err);
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply({ content: `Error: ${err.message || 'Unknown error'}` }).catch(() => {});
+    } else {
+      await interaction.reply({ content: `Error: ${err.message || 'Unknown error'}`, ephemeral: true }).catch(() => {});
+    }
   }
 });
 
-// Finally, login the client
+// --- VERY LAST LINE ---
 client.login(process.env.TOKEN);
