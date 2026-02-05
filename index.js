@@ -49,7 +49,7 @@ if (fs.existsSync(DATA_FILE)) {
     data.tickets = loaded.tickets || {};
     data.vouches = loaded.vouches || {};
     data.afk = loaded.afk || {};
-    console.log('[DATA] Loaded existing data');
+    console.log('[DATA] Loaded');
   } catch (err) {
     console.error('[DATA] Load failed:', err);
   }
@@ -59,7 +59,6 @@ function saveData() {
   try {
     const serial = { ...data, redeemedUsers: Array.from(data.redeemedUsers) };
     fs.writeFileSync(DATA_FILE, JSON.stringify(serial, null, 2));
-    console.log('[DATA] Saved');
   } catch (err) {
     console.error('[DATA] Save failed:', err);
   }
@@ -247,14 +246,19 @@ client.on('messageCreate', async message => {
   }
 
   // Middleman commands - allow mode OR role
-  if (['earn', 'schior', 'mmfee', 'mminfo', 'vouches', 'vouch', 'setvouches'].includes(cmd)) {
+  if (['earn', 'mmfee', 'mminfo', 'vouches', 'vouch', 'setvouches'].includes(cmd)) {
     const hasMode = data.userModes[userId]?.middleman === true;
     const hasMM = setup.middlemanRole && message.member.roles.cache.has(String(setup.middlemanRole));
     const hasIMM = setup.indexMiddlemanRole && message.member.roles.cache.has(String(setup.indexMiddlemanRole));
 
+    console.log(`[MM TRY] ${cmd} | mode=${hasMode} | mm=${hasMM} | imm=${hasIMM}`);
+
     if (!hasMode && !hasMM && !hasIMM) {
-      return message.reply('You need middleman mode (reply **2** after redeem) or the middleman/index middleman role.');
+      console.log('[MM BLOCKED] No access');
+      return message.reply('Middleman commands require:\n- Reply **2** after redeem for mode\n- OR middleman/index middleman role');
     }
+
+    console.log('[MM ALLOWED] Running ' + cmd);
   }
 
   // $help
@@ -264,26 +268,11 @@ client.on('messageCreate', async message => {
       .setTitle('Bot Commands')
       .setDescription('Prefix: $')
       .addFields(
-        {
-          name: 'Setup',
-          value: '$shazam — Ticket mode setup\n$shazam1 — Middleman mode setup (reply 2 after redeem)'
-        },
-        {
-          name: 'Middleman Commands',
-          value: '$earn, $schior, $mmfee, $mminfo, $vouches [@user], $vouch @user, $setvouches @user <number>'
-        },
-        {
-          name: 'Ticket Commands',
-          value: '$ticket1, $index, $seller, $shop\nInside tickets: $add, $transfer, $claim, $unclaim, $close'
-        },
-        {
-          name: 'General',
-          value: '$afk <reason>, $help'
-        },
-        {
-          name: 'Owner',
-          value: '$dm all <message>'
-        }
+        { name: 'Setup', value: '$shazam — Ticket setup\n$shazam1 — Middleman setup (reply 2 after redeem)' },
+        { name: 'Middleman', value: '$earn, $mmfee, $mminfo, $vouches [@user], $vouch @user, $setvouches @user <number>' },
+        { name: 'Tickets', value: '$ticket1, $index, $seller, $shop\nInside: $add, $transfer, $claim, $unclaim, $close' },
+        { name: 'General', value: '$afk <reason>, $help' },
+        { name: 'Owner', value: '$dm all <message>' }
       );
 
     return message.channel.send({ embeds: [embed] });
@@ -392,7 +381,7 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // $shop - product focused
+  // $shop
   if (cmd === 'shop') {
     const embed = new EmbedBuilder()
       .setColor(0xffd700)
@@ -422,8 +411,9 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // $shazam - full ticket setup
+  // $shazam
   if (cmd === 'shazam') {
+    console.log('[SHZ] $shazam | Redeemed: ' + isRedeemed(userId) + ' | Mode: ' + hasTicketMode(userId));
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
 
     await message.reply('**Ticket setup started.** Answer questions. "cancel" to stop.');
@@ -489,8 +479,9 @@ client.on('messageCreate', async message => {
     message.channel.send('**Ticket setup complete!** Use $ticket1, $index, $seller or $shop.');
   }
 
-  // $shazam1 - middleman mode setup only
+  // $shazam1
   if (cmd === 'shazam1') {
+    console.log('[SHZ1] $shazam1 | Redeemed: ' + isRedeemed(userId) + ' | MM mode: ' + data.userModes[userId]?.middleman);
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
     if (!data.userModes[userId]?.middleman) {
       return message.reply('This command is only for middleman mode. Redeem a key and reply **2** to activate middleman mode.');
@@ -538,7 +529,7 @@ client.on('messageCreate', async message => {
     }
 
     saveData();
-    message.channel.send('**Middleman setup complete!** You can now use middleman commands ($earn, $schior, etc.).');
+    message.channel.send('**Middleman setup complete!** You can now use middleman commands ($earn, $mmfee, etc.).');
     return;
   }
 
@@ -738,30 +729,37 @@ client.on('interactionCreate', async interaction => {
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('product')
-            .setLabel('What product are you buying?')
+            .setLabel('Product you want to buy?') // <45 chars
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('quantity')
-            .setLabel('How much of the product are you willing to buy?')
+            .setLabel('Quantity you want?') // <45 chars
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('payment_method')
-            .setLabel('Whats your payment method?')
+            .setLabel('Payment method?') // <45 chars
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
         )
       );
 
-      await interaction.showModal(modal);
+      try {
+        await interaction.showModal(modal);
+        console.log('[MODAL SHOW] Shop modal sent to ' + interaction.user.tag);
+      } catch (err) {
+        console.error('[MODAL SHOW ERROR]', err);
+        await interaction.reply({ content: 'Failed to open modal: ' + err.message, ephemeral: true }).catch(() => {});
+      }
       return;
     }
 
+    // Claim button
     if (interaction.customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
 
@@ -787,6 +785,7 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
+    // Unclaim button
     if (interaction.customId === 'unclaim_ticket') {
       const isOwner = interaction.user.id === BOT_OWNER_ID;
       if (!ticket.claimedBy) return interaction.reply({ content: 'Not claimed.', ephemeral: true });
@@ -809,6 +808,7 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
+    // Close button
     if (interaction.customId === 'close_ticket') {
       const isOwner = interaction.user.id === BOT_OWNER_ID;
       if (!ticket.claimedBy && !interaction.member.roles.cache.has(String(setup.coOwnerRole || '')) && !isOwner) {
@@ -847,42 +847,44 @@ client.on('interactionCreate', async interaction => {
   }
 
   if (interaction.isModalSubmit()) {
-    await interaction.deferReply({ ephemeral: true }).catch(() => {});
+    console.log(`[MODAL] Submitted: ${interaction.customId} by ${interaction.user.tag}`);
 
-    const isIndex = interaction.customId === 'index_modal';
-    const isSeller = interaction.customId === 'seller_modal';
-    const isShop = interaction.customId === 'shop_modal';
+    await interaction.deferReply({ ephemeral: true }).catch(err => console.error('Defer failed:', err));
 
-    const middlemanRole = isIndex ? setup.indexMiddlemanRole : setup.middlemanRole;
+    try {
+      const isIndex = interaction.customId === 'index_modal';
+      const isSeller = interaction.customId === 'seller_modal';
+      const isShop = interaction.customId === 'shop_modal';
 
-    const overwrites = [
-      { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-      { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
-    ];
+      const middlemanRole = isIndex ? setup.indexMiddlemanRole : setup.middlemanRole;
 
-    if (isSeller || isShop) {
+      const overwrites = [
+        { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+        { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
+      ];
+
+      if (isSeller || isShop) {
+        if (setup.coOwnerRole) {
+          overwrites.push({
+            id: setup.coOwnerRole,
+            allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory]
+          });
+        }
+      } else if (middlemanRole) {
+        overwrites.push({
+          id: middlemanRole,
+          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory],
+          deny: [PermissionsBitField.Flags.SendMessages]
+        });
+      }
+
       if (setup.coOwnerRole) {
         overwrites.push({
           id: setup.coOwnerRole,
           allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory]
         });
       }
-    } else if (middlemanRole) {
-      overwrites.push({
-        id: middlemanRole,
-        allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory],
-        deny: [PermissionsBitField.Flags.SendMessages]
-      });
-    }
 
-    if (setup.coOwnerRole) {
-      overwrites.push({
-        id: setup.coOwnerRole,
-        allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory]
-      });
-    }
-
-    try {
       const safeUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, '');
       const channel = await interaction.guild.channels.create({
         name: `${isShop ? 'shop' : isSeller ? 'seller' : isIndex ? 'index' : 'ticket'}-${safeUsername}`,
@@ -960,8 +962,8 @@ client.on('interactionCreate', async interaction => {
 
       await interaction.editReply(`Ticket created → ${channel}`);
     } catch (err) {
-      console.error('Ticket creation error:', err);
-      await interaction.editReply('Failed to create ticket. Bot needs Manage Channels & Manage Permissions.');
+      console.error('[MODAL ERROR]', err.stack || err);
+      await interaction.editReply({ content: `Error creating ticket: ${err.message || 'Unknown error'}` }).catch(() => {});
     }
   }
 });
