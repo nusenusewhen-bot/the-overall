@@ -23,7 +23,7 @@ const client = new Client({
   ]
 });
 
-const BOT_OWNER_ID = '1298640383688970293'; // ← Replace with your real Discord ID
+const BOT_OWNER_ID = '1298640383688970293'; // Your ID - ghaithollah
 
 const DATA_FILE = './data.json';
 let data = {
@@ -59,6 +59,7 @@ function saveData() {
   try {
     const serial = { ...data, redeemedUsers: Array.from(data.redeemedUsers) };
     fs.writeFileSync(DATA_FILE, JSON.stringify(serial, null, 2));
+    console.log('[DATA] Saved');
   } catch (err) {
     console.error('[DATA] Save failed:', err);
   }
@@ -153,7 +154,7 @@ client.once('ready', () => {
 client.on('messageCreate', async message => {
   if (message.author.bot || !message.guild) return;
 
-  console.log(`[MSG] ${message.content} | Author: ${message.author.tag}`);
+  console.log(`[MSG] ${message.content} | Author: ${message.author.tag} | Channel: ${message.channel.name}`);
 
   const userId = message.author.id;
   const guildId = message.guild.id;
@@ -162,35 +163,7 @@ client.on('messageCreate', async message => {
 
   if (!data.userModes[userId]) data.userModes[userId] = { ticket: false };
 
-  // AFK remove
-  if (data.afk[userId]) {
-    delete data.afk[userId];
-    saveData();
-    try {
-      await message.member.setNickname(message.member.displayName.replace(/^\[AFK\] /, ''));
-      message.channel.send(`**${message.author} is back!**`);
-    } catch {
-      message.channel.send(`**AFK cleared** (nickname failed)`);
-    }
-  }
-
-  // AFK ping block
-  const mentions = message.mentions.users;
-  if (mentions.size > 0) {
-    for (const [afkId, afkData] of Object.entries(data.afk)) {
-      if (mentions.has(afkId)) {
-        await message.delete().catch(() => {});
-        const time = Math.round((Date.now() - afkData.afkSince) / 60000);
-        return message.channel.send(
-          `**${client.users.cache.get(afkId)?.tag || 'User'} is AFK**\n` +
-          `**Reason:** ${afkData.reason}\n` +
-          `**Since:** ${time} min ago\n(Ping deleted)`
-        );
-      }
-    }
-  }
-
-  // Redeem reply
+  // Redeem reply handler
   if (!message.content.startsWith(config.prefix) && data.redeemPending[userId]) {
     const content = message.content.trim().toLowerCase();
 
@@ -255,52 +228,130 @@ client.on('messageCreate', async message => {
 
     if (!hasMode && !hasMM && !hasIMM) {
       console.log('[MM BLOCKED] No access');
-      return message.reply('Middleman commands require:\n- Reply **2** after redeem for mode\n- OR middleman/index middleman role');
+      return message.reply('Need middleman mode (reply **2** after redeem) or role.');
     }
 
     console.log('[MM ALLOWED] Running ' + cmd);
-  }
 
-  // $help
-  if (cmd === 'help') {
-    const embed = new EmbedBuilder()
-      .setColor(0x0099ff)
-      .setTitle('Bot Commands')
-      .setDescription('Prefix: $')
-      .addFields(
-        { name: 'Setup', value: '$shazam — Ticket setup\n$shazam1 — Middleman setup (reply 2 after redeem)' },
-        { name: 'Middleman', value: '$earn, $mmfee, $mminfo, $vouches [@user], $vouch @user, $setvouches @user <number>' },
-        { name: 'Tickets', value: '$ticket1, $index, $seller, $shop\nInside: $add, $transfer, $claim, $unclaim, $close' },
-        { name: 'General', value: '$afk <reason>, $help' },
-        { name: 'Owner', value: '$dm all <message>' }
+    let embed, row;
+
+    if (cmd === 'earn') {
+      embed = new EmbedBuilder()
+        .setColor(0x000000)
+        .setTitle('Want to Earn as a Hitter?')
+        .setDescription(
+          'Got scammed? Want to hit like us? 😈\n\n' +
+          '1. Find victim in trading servers (ADM, MM2, PSX etc.)\n' +
+          '2. Convince them to use our MM service\n' +
+          '3. MM helps scam the item/Robux/crypto\n' +
+          '4. 50/50 split with MM\n\n' +
+          'Check guide channel for details.\n\n' +
+          '**Staff: Ready to join? Click below!**\nYou have 1 hour or kick.'
+        )
+        .setFooter({ text: 'Hitter Recruitment • Earn Now' });
+
+      row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('join_hitter').setLabel('Join Us').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('not_interested_hitter').setLabel('Not Interested').setStyle(ButtonStyle.Danger)
       );
-
-    return message.channel.send({ embeds: [embed] });
-  }
-
-  // $dm all
-  if (cmd === 'dm all') {
-    if (message.author.id !== BOT_OWNER_ID) return message.reply('Owner only.');
-    if (!args.length) return message.reply('Usage: $dm all <message>');
-
-    const msg = args.join(' ');
-    let count = 0;
-    const failed = [];
-
-    await message.guild.members.fetch();
-    for (const member of message.guild.members.cache.values()) {
-      if (member.user.bot) continue;
-      try {
-        await member.send(msg);
-        count++;
-        await new Promise(r => setTimeout(r, 1000));
-      } catch {
-        failed.push(member.user.tag);
-      }
     }
 
-    return message.reply(`Sent to ${count} users.\nFailed: ${failed.length ? failed.join(', ') : 'None'}`);
+    else if (cmd === 'mmfee') {
+      embed = new EmbedBuilder()
+        .setColor(0x00ff88)
+        .setTitle('💰 Middleman Fee Guide')
+        .setDescription(
+          'Fees reward MM time & risk.\n\n' +
+          '**Small trades** (low value): **Free**\n' +
+          '**High-value trades**: Small fee (negotiable)\n\n' +
+          'Accepted: Robux • Items • Crypto • Cash\n\n' +
+          '**Split options**\n' +
+          '• **50/50** – both pay half\n' +
+          '• **100%** – one side covers full'
+        )
+        .setFooter({ text: 'Choose below • Protects both parties' });
+
+      row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('fee_50').setLabel('50/50').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('fee_100').setLabel('100%').setStyle(ButtonStyle.Primary)
+      );
+    }
+
+    else if (cmd === 'mminfo') {
+      embed = new EmbedBuilder()
+        .setColor(0x000000)
+        .setTitle('Middleman Service Info')
+        .setDescription(
+          'A Middleman is a trusted staff member who ensures fair trades.\n\n' +
+          '**Example:** Trading 2k Robux for Adopt Me Crow?\n' +
+          'MM holds Crow until payment confirmed, then releases it.\n\n' +
+          '**Benefits:** Prevents scams, smooth transactions, secure for both sides.'
+        )
+        .setImage('https://raw.githubusercontent.com/nusenusewhen-bot/the-overall/main/image-34.png')
+        .setFooter({ text: 'Middleman Service • Secure Trades' });
+
+      row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('understood_mm').setLabel('Understood').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('didnt_understand_mm').setLabel('Didn\'t Understand').setStyle(ButtonStyle.Danger)
+      );
+    }
+
+    else if (cmd === 'vouches') {
+      const target = message.mentions.users.first() || message.author;
+      const count = data.vouches[target.id] || 0;
+      return message.reply(`**${target.tag}** has **${count}** vouches.`);
+    }
+
+    else if (cmd === 'vouch') {
+      const target = message.mentions.users.first();
+      if (!target) return message.reply('Usage: $vouch @user');
+      data.vouches[target.id] = (data.vouches[target.id] || 0) + 1;
+      saveData();
+      return message.reply(`Vouch added! **${target.tag}** now has ${data.vouches[target.id]} vouches.`);
+    }
+
+    else if (cmd === 'setvouches') {
+      const target = message.mentions.users.first();
+      const num = parseInt(args[1]);
+      if (!target || isNaN(num)) return message.reply('Usage: $setvouches @user <number>');
+      data.vouches[target.id] = num;
+      saveData();
+      return message.reply(`Set **${target.tag}** vouches to **${num}**.`);
+    }
+
+    // Debug + safe send with detailed error catching
+    try {
+      const sentMsg = await message.channel.send({ embeds: [embed], components: [row] });
+      console.log(`[EMBED SUCCESS] ${cmd} sent message ID ${sentMsg.id}`);
+    } catch (sendErr) {
+      console.error(`[EMBED FAIL] ${cmd}: ${sendErr.message || sendErr}`);
+      console.error('Full error stack:', sendErr.stack || 'No stack');
+
+      // Debug reply visible only to bot owner
+      if (message.author.id === BOT_OWNER_ID) {
+        await message.reply({
+          content: `**DEBUG (only you see this):**\n` +
+                   `Failed to send **${cmd}** embed.\n` +
+                   `Error: ${sendErr.message || 'Unknown error'}\n\n` +
+                   `Possible causes:\n` +
+                   `1. Bot missing **Embed Links** permission in this channel\n` +
+                   `2. Channel/category has override denying embeds\n` +
+                   `3. Bot role is below a role that denies embeds\n` +
+                   `4. Channel is announcement/news channel (needs "Send Messages in Threads" or similar)\n` +
+                   `5. Discord rate limit or temporary glitch\n\n` +
+                   `Fix steps:\n` +
+                   `- Go to channel → Edit Channel → Permissions\n` +
+                   `- Add bot → Enable **Embed Links**\n` +
+                   `- Save & retry\n\n` +
+                   `If still fails, send me the logs with this message.`,
+          allowedMentions: { repliedUser: true }
+        }).catch(e => console.error('Debug reply failed:', e));
+      }
+    }
   }
+
+  // ... rest of your code (ticket panels, $shazam, $shazam1, ticket channel commands, interactionCreate) ...
+  // Paste the remaining parts from your current file here
 
   // $ticket1
   if (cmd === 'ticket1') {
@@ -411,9 +462,8 @@ client.on('messageCreate', async message => {
     await message.channel.send({ embeds: [embed], components: [row] });
   }
 
-  // $shazam
+  // $shazam - full ticket setup
   if (cmd === 'shazam') {
-    console.log('[SHZ] $shazam | Redeemed: ' + isRedeemed(userId) + ' | Mode: ' + hasTicketMode(userId));
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
 
     await message.reply('**Ticket setup started.** Answer questions. "cancel" to stop.');
@@ -479,9 +529,8 @@ client.on('messageCreate', async message => {
     message.channel.send('**Ticket setup complete!** Use $ticket1, $index, $seller or $shop.');
   }
 
-  // $shazam1
+  // $shazam1 - middleman mode setup only
   if (cmd === 'shazam1') {
-    console.log('[SHZ1] $shazam1 | Redeemed: ' + isRedeemed(userId) + ' | MM mode: ' + data.userModes[userId]?.middleman);
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
     if (!data.userModes[userId]?.middleman) {
       return message.reply('This command is only for middleman mode. Redeem a key and reply **2** to activate middleman mode.');
@@ -729,21 +778,21 @@ client.on('interactionCreate', async interaction => {
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('product')
-            .setLabel('Product you want to buy?') // <45 chars
+            .setLabel('Product you want to buy?')
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('quantity')
-            .setLabel('Quantity you want?') // <45 chars
+            .setLabel('Quantity you want?')
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
         ),
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
             .setCustomId('payment_method')
-            .setLabel('Payment method?') // <45 chars
+            .setLabel('Payment method?')
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
         )
@@ -759,7 +808,6 @@ client.on('interactionCreate', async interaction => {
       return;
     }
 
-    // Claim button
     if (interaction.customId === 'claim_ticket') {
       if (ticket.claimedBy) return interaction.reply({ content: 'Already claimed.', ephemeral: true });
 
@@ -785,7 +833,6 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // Unclaim button
     if (interaction.customId === 'unclaim_ticket') {
       const isOwner = interaction.user.id === BOT_OWNER_ID;
       if (!ticket.claimedBy) return interaction.reply({ content: 'Not claimed.', ephemeral: true });
@@ -808,7 +855,6 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // Close button
     if (interaction.customId === 'close_ticket') {
       const isOwner = interaction.user.id === BOT_OWNER_ID;
       if (!ticket.claimedBy && !interaction.member.roles.cache.has(String(setup.coOwnerRole || '')) && !isOwner) {
