@@ -153,7 +153,7 @@ async function updateTicketPerms(channel, ticket, setup) {
       }).catch(() => {});
     });
   } catch (err) {
-    console.error('[PERMS UPDATE ERROR]', err.message || err);
+    console.error('[PERMS ERROR]', err.message || err);
   }
 }
 
@@ -173,7 +173,7 @@ client.on('messageCreate', async message => {
 
   if (!data.userModes[userId]) data.userModes[userId] = { ticket: false, middleman: false };
 
-  // Handle redeem reply FIRST (before prefix check)
+  // Handle redeem reply FIRST
   if (data.redeemPending[userId]) {
     const content = message.content.trim().toLowerCase();
 
@@ -193,7 +193,6 @@ client.on('messageCreate', async message => {
       return message.reply('**Middleman mode activated!** Now run **$shazam1**.');
     }
 
-    console.log(`[PENDING INVALID] ${message.author.tag} replied: ${content}`);
     return message.reply('Reply **1** (Ticket) or **2** (Middleman) only.');
   }
 
@@ -215,7 +214,6 @@ client.on('messageCreate', async message => {
     data.redeemPending[userId] = true;
     saveData();
 
-    console.log(`[REDEEM] ${message.author.tag} redeemed ${key}`);
     message.reply(`**Key activated!**\nReply **1** (Ticket mode) or **2** (Middleman mode) now.`);
     try { await message.author.send(`**Key redeemed!**\nReply **1** or **2** in channel.`); } catch {}
     return;
@@ -224,17 +222,11 @@ client.on('messageCreate', async message => {
   const redeemRequiredCommands = ['ticket1', 'index', 'seller', 'shop', 'support'];
 
   if (redeemRequiredCommands.includes(cmd)) {
-    if (!isRedeemed(userId)) {
-      console.log(`[BLOCK REDEEM] ${message.author.tag} tried ${cmd}`);
-      return message.reply('You must redeem a key first.');
-    }
+    if (!isRedeemed(userId)) return message.reply('You must redeem a key first.');
   }
 
   if (['earn', 'mmfee', 'mminfo', 'vouches', 'vouch', 'setvouches'].includes(cmd)) {
-    if (!isRedeemed(userId) || !hasMiddlemanMode(userId)) {
-      console.log(`[BLOCK MM] ${message.author.tag} tried ${cmd}`);
-      return;
-    }
+    if (!isRedeemed(userId) || !hasMiddlemanMode(userId)) return;
 
     const hasMM = setup.middlemanRole && message.member.roles.cache.has(String(setup.middlemanRole));
     const hasIMM = setup.indexMiddlemanRole && message.member.roles.cache.has(String(setup.indexMiddlemanRole));
@@ -344,7 +336,7 @@ client.on('messageCreate', async message => {
         { name: 'Setup', value: '$shazam — Ticket setup\n$shazam1 — Middleman setup' },
         { name: 'Middleman', value: '$earn\n$mmfee\n$mminfo\n$vouches [@user]\n$vouch @user\n$setvouches @user <number>' },
         { name: 'Tickets (needs redeem)', value: '$ticket1\n$index\n$seller\n$shop\n$support' },
-        { name: 'In tickets', value: '$add @user/ID\n$claim\n$unclaim\n$close (transcripts)' }
+        { name: 'In tickets', value: '$add @user/ID\n$claim\n$unclaim\n$close' }
       );
 
     return message.reply({ embeds: [embed] });
@@ -353,7 +345,7 @@ client.on('messageCreate', async message => {
   if (cmd === 'shazam') {
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
 
-    console.log(`[SHAZAM START] ${message.author.tag}`);
+    console.log(`[SHAZAM] ${message.author.tag} started setup`);
     await message.reply('**Ticket setup started.** Answer questions. Type "cancel" to stop.');
 
     let ans;
@@ -397,7 +389,7 @@ client.on('messageCreate', async message => {
     if (!isRedeemed(userId)) return message.reply('Redeem a key first.');
     if (!hasMiddlemanMode(userId)) return message.reply('This command is only for middleman mode. Redeem and reply **2**.');
 
-    console.log(`[SHAZAM1 START] ${message.author.tag}`);
+    console.log(`[SHAZAM1] ${message.author.tag} started setup`);
     await message.reply('**Middleman setup started.** Answer questions. Type "cancel" to stop.');
 
     let ans = await askQuestion(message.channel, userId, 'Middleman role ID (numbers only):', a => /^\d+$/.test(a));
@@ -453,7 +445,44 @@ client.on('messageCreate', async message => {
       return message.reply(`Added ${targetUser} to the ticket.`);
     }
 
-    // ... add $transfer, $claim, $unclaim, $close with transcript saving ...
+    if (cmd === 'claim') {
+      if (ticket.claimedBy) return message.reply('Already claimed.');
+      if (!isMM && !isIndexMM) return message.reply('Only middlemen can claim.');
+      ticket.claimedBy = message.author.id;
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      message.channel.send(`**${message.author} has claimed the ticket**`);
+      return;
+    }
+
+    if (cmd === 'unclaim') {
+      if (!ticket.claimedBy) return message.reply('Not claimed.');
+      if (ticket.claimedBy !== message.author.id && message.author.id !== BOT_OWNER_ID) return message.reply('Only claimer or bot owner can unclaim.');
+      ticket.claimedBy = null;
+      saveData();
+      await updateTicketPerms(message.channel, ticket, setup);
+      message.channel.send(`**Ticket unclaimed by ${message.author}**`);
+      return;
+    }
+
+    if (cmd === 'close') {
+      if (!isClaimed && !isCo && !isOwner) return message.reply('Only claimer, co-owner or bot owner can close.');
+
+      const msgs = await message.channel.messages.fetch({ limit: 100 });
+      const transcript = msgs.reverse().map(m => `[${m.createdAt.toLocaleString('en-GB')}] ${m.author.tag}: ${m.content || '[Media]'}`).join('\n');
+
+      const chan = message.guild.channels.cache.get(setup.transcriptsChannel);
+      if (chan) {
+        await chan.send({
+          content: `Transcript for ${message.channel.name}`,
+          files: [{ attachment: Buffer.from(transcript, 'utf-8'), name: `${message.channel.name}-transcript.txt` }]
+        });
+      }
+
+      await message.reply('Closing ticket...');
+      await message.channel.delete();
+      return;
+    }
   }
 });
 
@@ -461,9 +490,11 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isButton() && !interaction.isModalSubmit() && !interaction.isStringSelectMenu()) return;
 
   const setup = data.guilds[interaction.guild.id]?.setup || {};
+  const ticket = data.tickets[interaction.channel?.id];
 
   if (interaction.isStringSelectMenu() && interaction.customId === 'support_ticket_select') {
     const value = interaction.values[0];
+
     let modal;
     if (value === 'report') {
       modal = new ModalBuilder().setCustomId('report_modal').setTitle('Report Ticket');
@@ -478,13 +509,42 @@ client.on('interactionCreate', async interaction => {
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('description').setLabel('Description').setStyle(TextInputStyle.Paragraph).setRequired(true))
       );
     }
+
     if (modal) await interaction.showModal(modal);
     return;
   }
 
   if (interaction.isButton() && interaction.customId.startsWith('request_')) {
     let modal;
-    // ... modal creation for request_ticket, request_index, request_seller, request_shop ...
+    if (interaction.customId === 'request_ticket') {
+      modal = new ModalBuilder().setCustomId('ticket_modal').setTitle('Trade Ticket Form');
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('other_id').setLabel("Other person's ID / username?").setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('trade_desc').setLabel('Describe the trade').setStyle(TextInputStyle.Paragraph).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('private_servers').setLabel('Can both join private servers?').setStyle(TextInputStyle.Short).setRequired(false))
+      );
+    } else if (interaction.customId === 'request_index') {
+      modal = new ModalBuilder().setCustomId('index_modal').setTitle('Request Indexing Service');
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('index_item').setLabel('What are you trying to index?').setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('payment_method').setLabel('What is your payment method?').setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('go_first').setLabel('You understand you must go first?').setStyle(TextInputStyle.Short).setRequired(true))
+      );
+    } else if (interaction.customId === 'request_seller') {
+      modal = new ModalBuilder().setCustomId('seller_modal').setTitle('Role Purchase Request');
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('role_name').setLabel('What role are you buying?').setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('payment').setLabel('What are you giving as payment?').setStyle(TextInputStyle.Short).setRequired(true))
+      );
+    } else if (interaction.customId === 'request_shop') {
+      modal = new ModalBuilder().setCustomId('shop_modal').setTitle('Shop Purchase Request');
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('product').setLabel('Product you want to buy?').setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('quantity').setLabel('Quantity you want?').setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('payment_method').setLabel('Payment method?').setStyle(TextInputStyle.Short).setRequired(true))
+      );
+    }
+
     if (modal) await interaction.showModal(modal);
     return;
   }
@@ -530,17 +590,17 @@ client.on('interactionCreate', async interaction => {
                      `2. Follow the instructions to verify your account.\n` +
                      `3. Once verified, you can start hitting.\n\n` +
                      `If you have questions, ping a staff member. Good luck!`
-          }).catch(err => console.error('[GUIDE ERROR]', err));
+          }).catch(err => console.error('[GUIDE SEND ERROR]', err));
         }
       }
       return;
     }
 
-    // other middleman buttons (not_interested_hitter, fee_50, fee_100, understood_mm, didnt_understand_mm)
+    // other middleman buttons...
 
     if (['claim_ticket', 'unclaim_ticket', 'close_ticket'].includes(customId)) {
       await interaction.deferUpdate().catch(() => {});
-      // ... claim/unclaim/close logic ...
+      // claim/unclaim/close logic...
     }
   }
 
@@ -548,24 +608,121 @@ client.on('interactionCreate', async interaction => {
     try {
       await interaction.deferReply({ ephemeral: true });
 
-      // full modal handling (report, support, ticket, seller, shop, index)
+      const isIndex = interaction.customId === 'index_modal';
+      const isSeller = interaction.customId === 'seller_modal';
+      const isReport = interaction.customId === 'report_modal';
+      const isSupportModal = interaction.customId === 'support_modal';
+      const isTicket = interaction.customId === 'ticket_modal';
 
-      const createdChannel = await interaction.guild.channels.create({
-        // ... channel creation logic ...
-      });
+      const middlemanRole = isIndex ? setup.indexMiddlemanRole : setup.middlemanRole;
 
-      data.tickets[createdChannel.id] = { /* ... */ };
+      const overwrites = [
+        { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+        { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
+      ];
+
+      if ((isReport || isSupportModal) && setup.staffRole) {
+        overwrites.push({
+          id: setup.staffRole,
+          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory]
+        });
+      }
+
+      if (isSeller || isReport) {
+        if (setup.coOwnerRole) {
+          overwrites.push({
+            id: setup.coOwnerRole,
+            allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory]
+          });
+        }
+      } else if (middlemanRole) {
+        overwrites.push({
+          id: middlemanRole,
+          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory],
+          deny: [PermissionsBitField.Flags.SendMessages]
+        });
+      }
+
+      if (setup.coOwnerRole) {
+        overwrites.push({
+          id: setup.coOwnerRole,
+          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory]
+        });
+      }
+
+      const safeUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, '');
+      let createdChannel;
+      try {
+        createdChannel = await interaction.guild.channels.create({
+          name: `${isReport ? 'report' : isSeller ? 'seller' : isIndex ? 'index' : isSupportModal ? 'support' : 'ticket'}-${safeUsername}`,
+          type: ChannelType.GuildText,
+          parent: setup.ticketCategory || undefined,
+          permissionOverwrites: overwrites
+        });
+      } catch (createErr) {
+        console.error('[CHANNEL CREATE ERROR]', createErr);
+        throw createErr;
+      }
+
+      data.tickets[createdChannel.id] = {
+        opener: interaction.user.id,
+        claimedBy: null,
+        addedUsers: [],
+        isIndexTicket: isIndex,
+        isSellerTicket: isSeller,
+        isReportTicket: isReport,
+        isTradeTicket: isTicket,
+        isSupportTicket: isSupportModal
+      };
       saveData();
 
+      const welcomeEmbed = new EmbedBuilder()
+        .setColor(isReport ? 0xff0000 : isSeller ? 0x00ff88 : isIndex ? 0x000000 : isSupportModal ? 0x5865F2 : 0x0088ff)
+        .setTitle(isReport ? 'Report Ticket' : isSeller ? 'Role Purchase Request' : isIndex ? 'Index Requesting' : isSupportModal ? 'Support Ticket' : 'Welcome to your Ticket!')
+        .setDescription(
+          isReport
+            ? `Hello **${interaction.user}**! Your report ticket has been created.\n\n**Staff will review it soon.**\nPlease be patient.`
+            : (isSeller
+              ? `Hello **${interaction.user}**! Your role purchase request has been created.\n\n**A co-owner will respond shortly.**\nPlease be patient.`
+              : (isIndex
+                ? `Hello! A <@&${middlemanRole || 'No middleman role'}> will reply to you soon.\n\n**Read our rules before proceeding with the ticket**\n• Be patient\n• Get payment ready\n• Do not waste time`
+                : (isSupportModal
+                  ? `Hello **${interaction.user}**! Your support ticket has been created.\n\n**A staff member will respond as soon as possible.**\nPlease be patient and provide details.`
+                  : `Hello **${interaction.user}**, thanks for opening a Middleman Ticket!\n\nA staff member will assist you shortly.\nProvide all trade details clearly.\n**Fake/troll tickets will result in consequences.**`
+                )
+              )
+            )
+        );
+
+      if (isReport) {
+        welcomeEmbed.addFields(
+          { name: 'Who do you wanna report?', value: `<@${interaction.fields.getTextInputValue('who_report') || 'Not provided'}>` },
+          { name: 'Description', value: interaction.fields.getTextInputValue('description') || 'Not provided' }
+        );
+      } else if (isSupportModal) {
+        welcomeEmbed.addFields(
+          { name: 'What do you need help with?', value: interaction.fields.getTextInputValue('help_with') || 'Not provided' },
+          { name: 'Description', value: interaction.fields.getTextInputValue('description') || 'Not provided' }
+        );
+      }
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('claim_ticket').setLabel('Claim').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('close_ticket').setLabel('Close').setStyle(ButtonStyle.Secondary)
+      );
+
+      const pingRole = isReport || isSeller ? setup.coOwnerRole : middlemanRole;
       await createdChannel.send({
-        // welcome embed + buttons
-      });
+        content: pingRole ? `<@&${pingRole}> New ${isReport ? 'report' : (isSeller ? 'seller' : (isIndex ? 'index' : (isSupportModal ? 'support' : 'ticket')))}!` : 'New ticket created!',
+        embeds: [welcomeEmbed],
+        components: [row]
+      }).catch(e => console.error('[WELCOME ERROR]', e));
 
       await interaction.editReply({ content: `Ticket created → ${createdChannel}` });
 
     } catch (err) {
-      console.error('[MODAL ERROR]', err);
-      await interaction.editReply({ content: `Error: ${err.message || 'Unknown'}` }).catch(() => {});
+      console.error('[MODAL ERROR]', err.stack || err);
+      await interaction.editReply({ content: `Error creating ticket: ${err.message || 'Unknown error'}` }).catch(() => {});
     }
   }
 });
