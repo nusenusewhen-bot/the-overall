@@ -736,17 +736,40 @@ client.on('interactionCreate', async interaction => {
     }
   }
 
- // Modal submit
 if (interaction.isModalSubmit()) {
   try {
     await interaction.deferReply({ ephemeral: true });
 
-    // === Your existing modal handling logic goes here ===
-    // Make sure you define `createdChannel` only inside this try block
-    // Example:
-    // const createdChannel = await interaction.guild.channels.create({ ... });
+    // Create ticket channel
+    const guild = interaction.guild;
+    const ticketName = `ticket-${interaction.user.username}`;
+    const createdChannel = await guild.channels.create({
+      name: ticketName,
+      type: ChannelType.GuildText,
+      parent: data.guilds[guild.id]?.setup?.ticketCategory || undefined,
+      permissionOverwrites: [
+        {
+          id: guild.id,
+          deny: [PermissionsBitField.Flags.ViewChannel],
+        },
+        {
+          id: interaction.user.id,
+          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages],
+        },
+      ],
+    });
 
-    // SUCCESS reply
+    // Store ticket info
+    data.tickets[createdChannel.id] = {
+      opener: interaction.user.id,
+      addedUsers: [],
+      claimedBy: null,
+      isReportTicket: interaction.customId === 'report_modal',
+      isSupportTicket: interaction.customId === 'support_modal',
+    };
+    saveData();
+
+    // Success reply
     await interaction.editReply({ content: `Ticket created → ${createdChannel}` });
 
   } catch (err) {
@@ -754,5 +777,4 @@ if (interaction.isModalSubmit()) {
     await interaction.editReply({ content: `Error creating ticket: ${err.message || 'Unknown error'}` }).catch(() => {});
   }
 }
-
 client.login(process.env.TOKEN);
