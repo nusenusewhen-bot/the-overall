@@ -229,18 +229,19 @@ client.on('messageCreate', async message => {
 
     if (cmd === 'earn') {
       embed = new EmbedBuilder()
-        .setColor(0x000000)
-        .setTitle('Want to Earn as a Hitter?')
+        .setColor(0xFF0000) // Red side line
+        .setTitle('Want to join us?')
         .setDescription(
-          'Got scammed? Want to hit like us? 😈\n\n' +
-          '1. Find victim in trading servers (ADM, MM2, PSX etc.)\n' +
-          '2. Convince them to use our MM service\n' +
-          '3. MM helps scam the item/Robux/crypto\n' +
-          '4. 50/50 split with MM\n\n' +
-          'Check guide channel for details.\n\n' +
-          '**Staff: Ready to join? Click below!**\nYou have 1 hour or kick.'
+          'You just got scammed! Wanna be a hitter like us? 😈\n\n' +
+          '1. You find victim in trading server (for eg: ADM, MM2, PSX ETC.)\n' +
+          '2. You get the victim to use our middleman service\n' +
+          '3. Then the middleman will help you scam the item CRYPTO/ROBUX/INGAME ETC.\n' +
+          '4. Once done the middleman and you split the item 50/50\n\n' +
+          'Be sure to check the guide channel for everything you need to know.\n\n' +
+          '**STAFF IMPORTANT**\n' +
+          'If you\'re ready, click the button below to start and join the team!'
         )
-        .setFooter({ text: 'Hitter Recruitment • Earn Now' });
+        .setFooter({ text: 'Hitter Recruitment' });
 
       row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('join_hitter').setLabel('Join Us').setStyle(ButtonStyle.Primary),
@@ -318,18 +319,44 @@ client.on('messageCreate', async message => {
     }
   }
 
-  // $help
+  // $help - line by line
   if (cmd === 'help') {
     const embed = new EmbedBuilder()
       .setColor(0x0099ff)
       .setTitle('Bot Commands')
       .setDescription('Prefix: $')
       .addFields(
-        { name: 'Setup', value: '$shazam — Ticket setup\n$shazam1 — Middleman setup (reply 2 after redeem)' },
-        { name: 'Middleman', value: '$earn, $mmfee, $mminfo, $vouches [@user], $vouch @user, $setvouches @user <number>' },
-        { name: 'Tickets', value: '$ticket1, $index, $seller, $shop\nInside: $add, $transfer, $claim, $unclaim, $close' },
-        { name: 'General', value: '$afk <reason>, $help' },
-        { name: 'Owner', value: '$dm all <message>' }
+        {
+          name: 'Setup',
+          value: '$shazam — Ticket setup\n$shazam1 — Middleman setup (reply 2 after redeem)'
+        },
+        {
+          name: 'Middleman Commands',
+          value:
+            '$earn\n' +
+            '$mmfee\n' +
+            '$mminfo\n' +
+            '$vouches [@user]\n' +
+            '$vouch @user\n' +
+            '$setvouches @user <number>'
+        },
+        {
+          name: 'Ticket Commands',
+          value:
+            '$ticket1\n' +
+            '$index\n' +
+            '$seller\n' +
+            '$shop\n' +
+            'Inside tickets: $add, $transfer, $claim, $unclaim, $close'
+        },
+        {
+          name: 'General',
+          value: '$afk <reason>\n$help'
+        },
+        {
+          name: 'Owner',
+          value: '$dm all <message>'
+        }
       );
 
     await message.reply({ embeds: [embed] });
@@ -683,7 +710,7 @@ client.on('interactionCreate', async interaction => {
   const ticket = data.tickets[interaction.channel?.id];
 
   if (interaction.isButton()) {
-    // Your existing buttons (claim_ticket, unclaim_ticket, close_ticket, request_ticket, etc.)
+    // Existing ticket buttons (claim, unclaim, close, request_*) ...
 
     if (interaction.customId === 'request_ticket') {
       const modal = new ModalBuilder()
@@ -803,7 +830,7 @@ client.on('interactionCreate', async interaction => {
       await interaction.channel.delete();
     }
 
-    // Hitter buttons
+    // Hitter buttons from $earn
     if (interaction.customId === 'join_hitter') {
       const guild = interaction.guild;
       const member = interaction.member;
@@ -845,6 +872,36 @@ client.on('interactionCreate', async interaction => {
     if (interaction.customId === 'not_interested_hitter') {
       await interaction.reply({
         content: `${interaction.user} was not interested in our offer.`,
+        allowedMentions: { users: [interaction.user.id] }
+      });
+    }
+
+    // $mmfee buttons
+    if (interaction.customId === 'fee_50') {
+      await interaction.reply({
+        content: `${interaction.user} chosen to split 50/50`,
+        allowedMentions: { users: [interaction.user.id] }
+      });
+    }
+
+    if (interaction.customId === 'fee_100') {
+      await interaction.reply({
+        content: `${interaction.user} decided to pay 100%`,
+        allowedMentions: { users: [interaction.user.id] }
+      });
+    }
+
+    // $mminfo buttons
+    if (interaction.customId === 'understood_mm') {
+      await interaction.reply({
+        content: `${interaction.user} had understood`,
+        allowedMentions: { users: [interaction.user.id] }
+      });
+    }
+
+    if (interaction.customId === 'didnt_understand_mm') {
+      await interaction.reply({
+        content: `${interaction.user} didnt understand`,
         allowedMentions: { users: [interaction.user.id] }
       });
     }
