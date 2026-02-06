@@ -5,7 +5,7 @@ import os
 import asyncio
 from datetime import datetime
 
-# Import views
+# Import views (make sure views.py exists with the code below)
 from views import RequestView, IndexRequestView, TicketControlView
 
 intents = discord.Intents.default()
@@ -50,7 +50,7 @@ config_data = load_config()
 def is_owner(member: discord.Member) -> bool:
     owner_role = config_data["config"].get("owner_role")
     if owner_role is None:
-        return True  # temporary fallback
+        return True  # temporary fallback so you can test
     return owner_role in [r.id for r in member.roles]
 
 
@@ -64,7 +64,7 @@ def is_ticket_staff(member: discord.Member) -> bool:
 
 
 # =====================================================
-# Ticket creation function
+# Ticket creation - THIS IS WHAT WAS MISSING
 # =====================================================
 async def create_ticket(interaction: discord.Interaction, modal, is_index: bool = False):
     cfg = config_data["config"]
@@ -106,7 +106,7 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
         f"{interaction.user.mention} {middleman_mention}",
         embed=discord.Embed(
             title="Ticket Opened",
-            description="Staff will assist you shortly.",
+            description="Staff will assist you shortly.\nPlease provide all details.",
             color=discord.Color.blue()
         )
     )
