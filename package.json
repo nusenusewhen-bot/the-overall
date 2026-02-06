@@ -1,17 +1,2 @@
-{
-  "name": "discord-middleman-ticket-bot",
-  "version": "1.0.0",
-  "description": "Combined ticket + middleman bot with key system",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "discord.js": "^14.15.3"
-  },
-  "engines": {
-    "node": "18.x"
-  },
-  "author": "ghaithollah",
-  "license": "MIT"
-}
+discord.py[voice]==2.4.0
+python-dotenv
