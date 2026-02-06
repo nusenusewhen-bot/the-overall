@@ -1,6 +1,7 @@
-# views.py
+# views.py - FULL VERSION WITH TICKET CONTROL BUTTONS
+
 import discord
-from discord import ui, TextStyle, Interaction
+from discord import ui, TextStyle, Interaction, PermissionOverwrite
 
 class RequestModal(ui.Modal, title="Trade Request"):
     other_user = ui.TextInput(label="User/ID of other person", required=True)
@@ -14,7 +15,7 @@ class RequestModal(ui.Modal, title="Trade Request"):
 
     async def on_submit(self, interaction: Interaction):
         await interaction.response.defer(ephemeral=True)
-        await create_ticket(interaction, self, is_index=False)  # calls function in main.py
+        await create_ticket(interaction, self, is_index=False)
 
 
 class IndexRequestModal(ui.Modal, title="Request Index"):
@@ -48,3 +49,61 @@ class IndexRequestView(ui.View):
     @ui.button(label="Request Index", style=discord.ButtonStyle.blurple, emoji="✉️")
     async def request_index(self, interaction: Interaction, button: ui.Button):
         await interaction.response.send_modal(IndexRequestModal(self.bot, self.config))
+
+
+class TicketControlView(ui.View):
+    def __init__(self, bot, config, claimed_by=None):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.config = config
+        self.claimed_by = claimed_by
+
+        self.claim_btn = ui.Button(label="Claim", style=discord.ButtonStyle.green, emoji="✅", disabled=bool(claimed_by))
+        self.unclaim_btn = ui.Button(label="Unclaim", style=discord.ButtonStyle.grey, emoji="🔓", disabled=not claimed_by)
+        self.close_btn = ui.Button(label="Close", style=discord.ButtonStyle.red, emoji="✖️")
+
+        self.add_item(self.claim_btn)
+        self.add_item(self.unclaim_btn)
+        self.add_item(self.close_btn)
+
+    @ui.button(label="Claim", style=discord.ButtonStyle.green, emoji="✅")
+    async def claim(self, interaction: Interaction, button: ui.Button):
+        if self.claimed_by:
+            await interaction.response.send_message("Already claimed.", ephemeral=True)
+            return
+
+        if not is_ticket_staff(interaction.user):
+            await interaction.response.send_message("Only staff can claim.", ephemeral=True)
+            return
+
+        self.claimed_by = interaction.user
+        self.claim_btn.disabled = True
+        self.unclaim_btn.disabled = False
+
+        await interaction.channel.set_permissions(interaction.guild.default_role, send_messages=False)
+        await interaction.channel.set_permissions(interaction.user, send_messages=True)
+
+        await interaction.message.edit(view=self)
+        await interaction.response.send_message(f"**Claimed by {interaction.user.mention}**")
+
+
+    @ui.button(label="Unclaim", style=discord.ButtonStyle.grey, emoji="🔓")
+    async def unclaim(self, interaction: Interaction, button: ui.Button):
+        if interaction.user != self.claimed_by:
+            await interaction.response.send_message("Only claimer can unclaim.", ephemeral=True)
+            return
+
+        self.claimed_by = None
+        self.claim_btn.disabled = False
+        self.unclaim_btn.disabled = True
+
+        await interaction.channel.set_permissions(interaction.guild.default_role, send_messages=None)
+
+        await interaction.message.edit(view=self)
+        await interaction.response.send_message("Ticket unclaimed.")
+
+
+    @ui.button(label="Close", style=discord.ButtonStyle.red, emoji="✖️")
+    async def close(self, interaction: Interaction, button: ui.Button):
+        await interaction.response.send_message("Closing ticket...")
+        await interaction.channel.delete()
