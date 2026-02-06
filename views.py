@@ -1,4 +1,4 @@
-# views.py - FULL VERSION WITH TICKET CONTROL BUTTONS
+# views.py - FIXED with custom_id on ALL buttons for persistence
 
 import discord
 from discord import ui, TextStyle, Interaction, PermissionOverwrite
@@ -14,8 +14,12 @@ class RequestModal(ui.Modal, title="Trade Request"):
         self.config = config
 
     async def on_submit(self, interaction: Interaction):
-        await interaction.response.defer(ephemeral=True)
-        await create_ticket(interaction, self, is_index=False)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            await create_ticket(interaction, self, is_index=False)
+        except Exception as e:
+            print(f"Trade modal error: {e}")
+            await interaction.followup.send(f"Error: {e}", ephemeral=True)
 
 
 class IndexRequestModal(ui.Modal, title="Request Index"):
@@ -29,44 +33,48 @@ class IndexRequestModal(ui.Modal, title="Request Index"):
         self.config = config
 
     async def on_submit(self, interaction: Interaction):
-        await interaction.response.defer(ephemeral=True)
-        await create_ticket(interaction, self, is_index=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            await create_ticket(interaction, self, is_index=True)
+        except Exception as e:
+            print(f"Index modal error: {e}")
+            await interaction.followup.send(f"Error: {e}", ephemeral=True)
 
 
 class RequestView(ui.View):
     def __init__(self, bot, config):
-        super().__init__(timeout=None)
+        super().__init__(timeout=None)  # must be None for persistence
 
-    @ui.button(label="Request", style=discord.ButtonStyle.blurple, emoji="✉️")
+    @ui.button(label="Request", style=discord.ButtonStyle.blurple, emoji="✉️", custom_id="persistent_trade_request")  # <--- custom_id added
     async def request(self, interaction: Interaction, button: ui.Button):
         await interaction.response.send_modal(RequestModal(self.bot, self.config))
 
 
 class IndexRequestView(ui.View):
     def __init__(self, bot, config):
-        super().__init__(timeout=None)
+        super().__init__(timeout=None)  # must be None
 
-    @ui.button(label="Request Index", style=discord.ButtonStyle.blurple, emoji="✉️")
+    @ui.button(label="Request Index", style=discord.ButtonStyle.blurple, emoji="✉️", custom_id="persistent_index_request")  # <--- custom_id added
     async def request_index(self, interaction: Interaction, button: ui.Button):
         await interaction.response.send_modal(IndexRequestModal(self.bot, self.config))
 
 
 class TicketControlView(ui.View):
     def __init__(self, bot, config, claimed_by=None):
-        super().__init__(timeout=None)
+        super().__init__(timeout=None)  # must be None
         self.bot = bot
         self.config = config
         self.claimed_by = claimed_by
 
-        self.claim_btn = ui.Button(label="Claim", style=discord.ButtonStyle.green, emoji="✅", disabled=bool(claimed_by))
-        self.unclaim_btn = ui.Button(label="Unclaim", style=discord.ButtonStyle.grey, emoji="🔓", disabled=not claimed_by)
-        self.close_btn = ui.Button(label="Close", style=discord.ButtonStyle.red, emoji="✖️")
+        self.claim_btn = ui.Button(label="Claim", style=discord.ButtonStyle.green, emoji="✅", disabled=bool(claimed_by), custom_id="ticket_claim")
+        self.unclaim_btn = ui.Button(label="Unclaim", style=discord.ButtonStyle.grey, emoji="🔓", disabled=not claimed_by, custom_id="ticket_unclaim")
+        self.close_btn = ui.Button(label="Close", style=discord.ButtonStyle.red, emoji="✖️", custom_id="ticket_close")
 
         self.add_item(self.claim_btn)
         self.add_item(self.unclaim_btn)
         self.add_item(self.close_btn)
 
-    @ui.button(label="Claim", style=discord.ButtonStyle.green, emoji="✅")
+    @ui.button(label="Claim", style=discord.ButtonStyle.green, emoji="✅", custom_id="ticket_claim")
     async def claim(self, interaction: Interaction, button: ui.Button):
         if self.claimed_by:
             await interaction.response.send_message("Already claimed.", ephemeral=True)
@@ -86,8 +94,7 @@ class TicketControlView(ui.View):
         await interaction.message.edit(view=self)
         await interaction.response.send_message(f"**Claimed by {interaction.user.mention}**")
 
-
-    @ui.button(label="Unclaim", style=discord.ButtonStyle.grey, emoji="🔓")
+    @ui.button(label="Unclaim", style=discord.ButtonStyle.grey, emoji="🔓", custom_id="ticket_unclaim")
     async def unclaim(self, interaction: Interaction, button: ui.Button):
         if interaction.user != self.claimed_by:
             await interaction.response.send_message("Only claimer can unclaim.", ephemeral=True)
@@ -102,8 +109,7 @@ class TicketControlView(ui.View):
         await interaction.message.edit(view=self)
         await interaction.response.send_message("Ticket unclaimed.")
 
-
-    @ui.button(label="Close", style=discord.ButtonStyle.red, emoji="✖️")
+    @ui.button(label="Close", style=discord.ButtonStyle.red, emoji="✖️", custom_id="ticket_close")
     async def close(self, interaction: Interaction, button: ui.Button):
         await interaction.response.send_message("Closing ticket...")
         await interaction.channel.delete()
