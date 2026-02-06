@@ -5,7 +5,7 @@ import os
 import asyncio
 from datetime import datetime
 
-# Import views (make sure views.py exists with the code below)
+# Import views
 from views import RequestView, IndexRequestView, TicketControlView
 
 intents = discord.Intents.default()
@@ -50,7 +50,7 @@ config_data = load_config()
 def is_owner(member: discord.Member) -> bool:
     owner_role = config_data["config"].get("owner_role")
     if owner_role is None:
-        return True  # temporary fallback so you can test
+        return True  # temporary fallback
     return owner_role in [r.id for r in member.roles]
 
 
@@ -64,7 +64,7 @@ def is_ticket_staff(member: discord.Member) -> bool:
 
 
 # =====================================================
-# Ticket creation - THIS IS WHAT WAS MISSING
+# Ticket creation function (now in main.py)
 # =====================================================
 async def create_ticket(interaction: discord.Interaction, modal, is_index: bool = False):
     cfg = config_data["config"]
@@ -132,6 +132,7 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
+    # Pass config_data to views for persistence
     bot.add_view(RequestView(bot, config_data))
     bot.add_view(IndexRequestView(bot, config_data))
     bot.add_view(TicketControlView(bot, config_data))
@@ -288,7 +289,7 @@ async def index(ctx):
             f"• Wait for a {staff_mention} to answer your ticket.\n"
             "• Be nice and kind to the staff and be patient.\n"
             "• State your roblox username on the account you want to complete the index in.\n\n"
-            "If not following so your ticket will be deleted and you will be timed out for 1 hour ♥️"
+            "If not following so your ticket will be deleted and you will be timed out for 1 hour "
         ),
         color=discord.Color.blue()
     )
