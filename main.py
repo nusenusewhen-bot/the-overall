@@ -327,53 +327,61 @@ async def ticket1(ctx):
 
     await ctx.send(embed=embed, view=view)
 
-# Add more commands as needed (seller, shop, index, support, claim, unclaim, transfer, close, etc.)
+# Add more commands here (seller, shop, index, support, etc.)
 
 @bot.event
 async def on_interaction(interaction):
-    if interaction.type == discord.InteractionType.component:
-        if interaction.data['custom_id'] == 'join_hitter':
-            guild = interaction.guild
-            member = interaction.user
-            hitter_role_id = data['guilds'].get(str(guild.id), {}).get('setup', {}).get('hitterRole')
+    if interaction.type != discord.InteractionType.component:
+        return
 
-            if not hitter_role_id:
-                return await interaction.response.send_message('Hitter role not set.', ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    setup = data['guilds'].get(guild_id, {}).get('setup', {})
 
-            role = guild.get_role(int(hitter_role_id))
-            if not role:
-                return await interaction.response.send_message('Hitter role not found.', ephemeral=True)
+    if interaction.data['custom_id'] == 'join_hitter':
+        member = interaction.user
+        hitter_role_id = setup.get('hitterRole')
 
-            already_had = role in member.roles
+        if not hitter_role_id:
+            return await interaction.response.send_message('Hitter role not set.', ephemeral=True)
 
-            if not already_had:
-                try:
-                    await member.add_roles(role)
-                except:
-                    return await interaction.response.send_message('Failed to add hitter role.', ephemeral=True)
+        role = interaction.guild.get_role(int(hitter_role_id))
+        if not role:
+            return await interaction.response.send_message('Hitter role not found.', ephemeral=True)
 
-            await interaction.response.send_message(
-                f"{member.mention} {'already has' if already_had else 'now has'} the Hitter role!",
-                ephemeral=False
-            )
+        already_had = role in member.roles
 
-            if not already_had:
-                guide_channel_id = data['guilds'].get(str(guild.id), {}).get('setup', {}).get('guideChannel')
-                if guide_channel_id:
-                    guide_channel = guild.get_channel(int(guide_channel_id))
-                    if guide_channel and isinstance(guide_channel, discord.TextChannel):
-                        verification_link = data['guilds'].get(str(guild.id), {}).get('setup', {}).get('verificationLink', '(not set)')
-                        await guide_channel.send(
-                            f"{member.mention} just joined the hitters!\n\n"
-                            f"Welcome! Read everything here carefully.\n\n"
-                            f"**Verification steps:**\n"
-                            f"1. Go to this link: {verification_link}\n"
-                            f"2. Follow the instructions to verify your account.\n"
-                            f"3. Once verified, you can start hitting.\n\n"
-                            f"If you have questions, ping a staff member. Good luck!"
-                        )
+        if not already_had:
+            try:
+                await member.add_roles(role)
+            except:
+                return await interaction.response.send_message('Failed to add hitter role.', ephemeral=True)
 
-        elif interaction.data['custom_id'] in ('understood_mm', 'didnt_understand_mm'):
-            await interaction.response.send_message(f"{interaction.user.mention} {'understood' if interaction.data['custom_id'] == 'understood_mm' else 'didn\\'t understand'} the middleman service.", ephemeral=False)
+        await interaction.response.send_message(
+            f"{member.mention} {'already has' if already_had else 'now has'} the Hitter role!",
+            ephemeral=False
+        )
+
+        if not already_had:
+            guide_channel_id = setup.get('guideChannel')
+            if guide_channel_id:
+                guide_channel = interaction.guild.get_channel(int(guide_channel_id))
+                if guide_channel and isinstance(guide_channel, discord.TextChannel):
+                    verification_link = setup.get('verificationLink', '(not set)')
+                    await guide_channel.send(
+                        f"{member.mention} just joined the hitters!\n\n"
+                        f"Welcome! Read everything here carefully.\n\n"
+                        f"**Verification steps:**\n"
+                        f"1. Go to this link: {verification_link}\n"
+                        f"2. Follow the instructions to verify your account.\n"
+                        f"3. Once verified, you can start hitting.\n\n"
+                        f"If you have questions, ping a staff member. Good luck!"
+                    )
+
+    elif interaction.data['custom_id'] in ('understood_mm', 'didnt_understand_mm'):
+        text = 'understood' if interaction.data['custom_id'] == 'understood_mm' else "didn't understand"
+        await interaction.response.send_message(
+            f"{interaction.user.mention} {text} the middleman service.",
+            ephemeral=False
+        )
 
 bot.run(TOKEN)
