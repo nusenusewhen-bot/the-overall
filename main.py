@@ -4,9 +4,8 @@ import json
 import os
 import io
 from datetime import datetime
-from dotenv import load_dotenv
 
-# Import your views (assuming views.py is in the same folder)
+# Import your views
 from views import (
     RequestView,
     IndexRequestView,
@@ -14,9 +13,6 @@ from views import (
     RequestModal,
     IndexRequestModal
 )
-
-# Load environment variables from .env file
-load_dotenv()
 
 # Bot setup
 intents = discord.Intents.default()
@@ -30,13 +26,12 @@ CONFIG_FILE = "config.json"
 
 
 def load_config():
-    """Load config.json or create default if it doesn't exist"""
+    """Load config.json or create default if missing"""
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     
-    # Default structure
-    default_config = {
+    default = {
         "keys": [],
         "used_keys": [],
         "activated_users": {},
@@ -49,8 +44,8 @@ def load_config():
             "transcript_channel": None
         }
     }
-    save_config(default_config)
-    return default_config
+    save_config(default)
+    return default
 
 
 def save_config(data):
@@ -59,12 +54,11 @@ def save_config(data):
         json.dump(data, f, indent=4)
 
 
-# Load config once at startup
+# Load config once
 config_data = load_config()
 
 
 def is_ticket_staff(member: discord.Member) -> bool:
-    """Check if user has staff/middleman/index permissions"""
     cfg = config_data["config"]
     roles = [role.id for role in member.roles]
     return (
@@ -75,7 +69,7 @@ def is_ticket_staff(member: discord.Member) -> bool:
 
 
 # =====================================================
-# Ticket creation logic (used by both trade & index modals)
+# Ticket creation logic (trade & index)
 # =====================================================
 async def create_ticket(interaction: discord.Interaction, modal, is_index: bool = False):
     cfg = config_data["config"]
@@ -93,7 +87,6 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
         interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
     }
 
-    # Add staff roles (view only)
     for key in ["middleman_role", "staff_role", "owner_role"]:
         rid = cfg.get(key)
         if rid:
@@ -101,55 +94,44 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
             if role:
                 overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=False)
 
-    # Add index staff user (if single user & indexing ticket)
     if is_index and cfg["index_staff_id"]:
         try:
-            staff_member = await interaction.guild.fetch_member(cfg["index_staff_id"])
-            overwrites[staff_member] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+            staff = await interaction.guild.fetch_member(cfg["index_staff_id"])
+            overwrites[staff] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
         except:
             pass
 
     channel = await category.create_text_channel(ticket_name, overwrites=overwrites)
 
-    # Welcome message
     staff_mention = f"<@{cfg['index_staff_id']}>" if is_index else "@Middleman"
     welcome_title = "Indexing Ticket Opened" if is_index else "Welcome to your Ticket!"
-    welcome_desc = (
-        f"Thanks for opening a ticket, {interaction.user.mention}!\n"
-        f"Wait for {staff_mention} to assist you."
-    )
+    welcome_desc = f"Thanks, {interaction.user.mention}! Wait for {staff_mention}."
     if is_index:
         welcome_desc += "\nPlease provide your Roblox username."
 
     await channel.send(
         f"{interaction.user.mention} {staff_mention}",
-        embed=discord.Embed(
-            title=welcome_title,
-            description=welcome_desc,
-            color=discord.Color.blue()
-        )
+        embed=discord.Embed(title=welcome_title, description=welcome_desc, color=discord.Color.blue())
     )
 
-    # Details embed from modal
-    details_embed = discord.Embed(title="Ticket Details", color=discord.Color.blue())
-    
+    details = discord.Embed(title="Ticket Details", color=discord.Color.blue())
     if is_index:
-        details_embed.add_field(name="What to index", value=modal.what_index.value, inline=False)
-        details_embed.add_field(name="Holding", value=modal.holding.value, inline=False)
-        details_embed.add_field(name="Obey rules", value=modal.obey_rules.value, inline=False)
+        details.add_field(name="What to index", value=modal.what_index.value, inline=False)
+        details.add_field(name="Holding", value=modal.holding.value, inline=False)
+        details.add_field(name="Obey rules", value=modal.obey_rules.value, inline=False)
     else:
-        details_embed.add_field(name="Other user/ID", value=modal.other_user.value, inline=False)
-        details_embed.add_field(name="Details", value=modal.details.value, inline=False)
-        details_embed.add_field(name="PS links", value=modal.ps_join.value or "Not provided", inline=False)
+        details.add_field(name="Other user/ID", value=modal.other_user.value, inline=False)
+        details.add_field(name="Details", value=modal.details.value, inline=False)
+        details.add_field(name="PS links", value=modal.ps_join.value or "Not provided", inline=False)
 
     view = TicketControlView(bot, config_data)
-    await channel.send(embed=details_embed, view=view)
+    await channel.send(embed=details, view=view)
 
     await interaction.followup.send(f"Ticket created → {channel.mention}", ephemeral=True)
 
 
 # =====================================================
-# Close ticket with transcript
+# Close ticket + transcript
 # =====================================================
 async def close_ticket(source, channel: discord.TextChannel, claimed_by=None, closed_by=None):
     cfg = config_data["config"]
@@ -158,7 +140,7 @@ async def close_ticket(source, channel: discord.TextChannel, claimed_by=None, cl
     if transcript_channel:
         lines = [
             "Ticket file",
-            f"Created by: Unknown (can be improved later)",
+            f"Created by: Unknown",
             f"Claimed by: {claimed_by.mention if claimed_by else 'None'}",
             f"Closed by: {closed_by.mention if closed_by else 'System'}",
             "═══════════════════════════════════════════════════════",
@@ -170,21 +152,20 @@ async def close_ticket(source, channel: discord.TextChannel, claimed_by=None, cl
                 continue
             ts = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
             author = msg.author.display_name
-            content = msg.clean_content or "[Embed / Attachment]"
+            content = msg.clean_content or "[Embed/Attachment]"
             lines.append(f"[{ts}] {author}: {content}")
 
-        transcript_content = "\n".join(lines).encode("utf-8")
-        filename = f"transcript-{channel.name}-{int(channel.created_at.timestamp())}.txt"
+        transcript = "\n".join(lines).encode("utf-8")
+        filename = f"{channel.name}-{int(channel.created_at.timestamp())}.txt"
 
         await transcript_channel.send(
-            content=f"Ticket **{channel.name}** closed by {closed_by.mention if closed_by else 'System'}",
-            file=discord.File(io.BytesIO(transcript_content), filename=filename)
+            f"Ticket **{channel.name}** closed",
+            file=discord.File(io.BytesIO(transcript), filename=filename)
         )
 
-    # Send closing message & delete channel
-    if hasattr(source, "followup"):  # Interaction
+    if hasattr(source, "followup"):
         await source.followup.send("Closing ticket...")
-    elif hasattr(source, "send"):     # Context (command)
+    else:
         await source.send("Closing ticket...")
 
     await channel.delete()
@@ -196,14 +177,12 @@ async def close_ticket(source, channel: discord.TextChannel, claimed_by=None, cl
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
-    print("------")
     
-    # Register persistent views
     bot.add_view(RequestView(bot, config_data))
     bot.add_view(IndexRequestView(bot, config_data))
     bot.add_view(TicketControlView(bot, config_data))
     
-    print("Persistent views added successfully")
+    print("Persistent views registered")
 
 
 @bot.event
@@ -215,18 +194,12 @@ async def on_message(message):
     if uid in config_data["activated_users"]:
         state = config_data["activated_users"][uid]
         if state.get("mode") is None:
-            content = message.content.strip()
-            if content in ("1", "2"):
-                mode = int(content)
+            if message.content.strip() in ("1", "2"):
+                mode = int(message.content.strip())
                 state["mode"] = mode
                 save_config(config_data)
-                
-                if mode == 1:
-                    await message.channel.send("Middleman mode selected.\nSay **$setuptick** to start setup.")
-                else:
-                    await message.channel.send("Ticket-only mode selected.\nSay **$setuptick** to start setup.")
-            else:
-                await message.channel.send("Please reply with **1** or **2**.")
+                msg = "Middleman mode. Use **$setuptick**" if mode == 1 else "Ticket mode. Use **$setuptick**"
+                await message.channel.send(msg)
 
     await bot.process_commands(message)
 
@@ -235,7 +208,7 @@ async def on_message(message):
 # Commands
 # =====================================================
 @bot.command()
-@commands.check(lambda ctx: config_data["config"]["owner_role"] in [r.id for r in ctx.author.roles])
+@commands.check(lambda ctx: config_data["config"]["owner_role"] in [r.id for r in ctx.author.roles] if config_data["config"]["owner_role"] else False)
 async def main(ctx):
     embed = discord.Embed(
         title="Found a trade and would like to ensure a safe trading experience?",
@@ -247,7 +220,7 @@ async def main(ctx):
             "**Important notes**\n"
             "• Both parties must agree before opening a ticket\n"
             "• Fake/Troll tickets will result into a ban or ticket blacklist\n"
-            "• Follow discord Terms of service and server guidelines"
+            "• Follow discord ToS and server guidelines"
         ),
         color=discord.Color.blue()
     )
@@ -258,7 +231,7 @@ async def main(ctx):
 
 
 @bot.command()
-@commands.check(lambda ctx: config_data["config"]["owner_role"] in [r.id for r in ctx.author.roles])
+@commands.check(lambda ctx: config_data["config"]["owner_role"] in [r.id for r in ctx.author.roles] if config_data["config"]["owner_role"] else False)
 async def index(ctx):
     cfg = config_data["config"]
     staff_mention = f"<@{cfg['index_staff_id']}>" if cfg["index_staff_id"] else "@Index Staff"
@@ -266,17 +239,13 @@ async def index(ctx):
     embed = discord.Embed(
         title="Indexing Services",
         description=(
-            "• Open this ticket if you would like a Indexing service "
-            "to help finish your index and complete your base.\n\n"
-            "• You're going to have to pay first before we let you "
-            "start indexing.\n\n"
-            "**When opening a ticket:**\n"
+            f"• Open this ticket if you would like a Indexing service to help finish your index and complete your base.\n\n"
+            f"• You're going to have to pay first before we let you start indexing.\n\n"
+            f"**When opening a ticket:**\n"
             f"• Wait for a {staff_mention} to answer your ticket.\n"
             "• Be nice and kind to the staff and be patient.\n"
-            "• State your roblox username on the account you "
-            "want to complete the index in.\n\n"
-            "If not following so your ticket will be deleted and you "
-            "will be timed out for 1 hour ♥️"
+            "• State your roblox username on the account you want to complete the index in.\n\n"
+            "If not following so your ticket will be deleted and you will be timed out for 1 hour ♥️"
         ),
         color=discord.Color.blue()
     )
@@ -307,14 +276,14 @@ async def redeem(ctx, *, key: str):
 
 
 # =====================================================
-# BOT LOGIN – at the bottom as requested
+# BOT LOGIN – HERE
 # =====================================================
 if __name__ == "__main__":
     token = os.getenv("DISCORD_TOKEN")
     if not token:
-        print("ERROR: DISCORD_TOKEN not found in .env file")
-        print("Please add it like this:")
-        print("DISCORD_TOKEN=your.token.here")
+        print("ERROR: DISCORD_TOKEN environment variable is not set!")
+        print("→ On Railway: add it in Variables tab")
+        print("→ Locally: set DISCORD_TOKEN=your.token.here in your terminal")
         exit(1)
 
     print("Starting bot...")
