@@ -5,6 +5,7 @@ import os
 import asyncio
 from datetime import datetime
 
+# Import views
 from views import RequestView, IndexRequestView, TicketControlView
 
 intents = discord.Intents.default()
@@ -70,7 +71,7 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
     category = interaction.guild.get_channel(cfg["ticket_category"])
 
     if not category:
-        await interaction.followup.send("Ticket category not set.", ephemeral=True)
+        await interaction.followup.send("Ticket category not set in config.", ephemeral=True)
         return
 
     prefix = "index-" if is_index else "trade-"
@@ -298,7 +299,7 @@ async def index(ctx):
 
 
 # =====================================================
-# Start bot
+# Run bot
 # =====================================================
 if __name__ == "__main__":
     token = os.getenv("DISCORD_TOKEN")
