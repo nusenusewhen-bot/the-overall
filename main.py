@@ -8,11 +8,15 @@ import asyncio
 load_dotenv()
 TOKEN = os.getenv('TOKEN')
 
+# Load config
+with open('config.json', 'r') as f:
+    config = json.load(f)
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix='$', intents=intents)
+bot = commands.Bot(command_prefix=config['prefix'], intents=intents)
 
 DATA_FILE = 'data.txt'
 
@@ -326,8 +330,6 @@ async def ticket1(ctx):
     view.add_item(discord.ui.Button(label='Request', style=discord.ButtonStyle.primary, emoji='📩', custom_id='request_ticket'))
 
     await ctx.send(embed=embed, view=view)
-
-# Add more commands here (seller, shop, index, support, etc.)
 
 @bot.event
 async def on_interaction(interaction):
