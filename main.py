@@ -64,7 +64,7 @@ def is_ticket_staff(member: discord.Member) -> bool:
 
 
 # =====================================================
-# Ticket creation function (in main.py)
+# Ticket creation function - GLOBAL in main.py
 # =====================================================
 async def create_ticket(interaction: discord.Interaction, modal, is_index: bool = False):
     cfg = config_data["config"]
@@ -132,7 +132,6 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
-    # Pass config_data to views
     bot.add_view(RequestView(bot, config_data))
     bot.add_view(IndexRequestView(bot, config_data))
     bot.add_view(TicketControlView(bot, config_data))
