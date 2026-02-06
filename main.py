@@ -5,10 +5,7 @@ import os
 import asyncio
 from datetime import datetime
 
-# Your user ID as fallback owner (you can run commands even before setup)
-FALLBACK_OWNER_ID = 1298640383688970293
-
-# Import views
+# Import views (make sure views.py exists with the code from earlier messages)
 from views import RequestView, IndexRequestView, TicketControlView
 
 intents = discord.Intents.default()
@@ -52,11 +49,9 @@ config_data = load_config()
 
 def is_owner(member: discord.Member) -> bool:
     owner_role = config_data["config"].get("owner_role")
-    # Allow your user ID always + real owner role when set
-    return (
-        member.id == FALLBACK_OWNER_ID or
-        (owner_role is not None and owner_role in [r.id for r in member.roles])
-    )
+    if owner_role is None:
+        return True  # temporary fallback until setup is done
+    return owner_role in [r.id for r in member.roles]
 
 
 def is_ticket_staff(member: discord.Member) -> bool:
@@ -185,12 +180,12 @@ async def setuptick(ctx):
 
 
 # =====================================================
-# Panels
+# Panels with your image
 # =====================================================
 @bot.command()
 async def main(ctx):
     if not is_owner(ctx.author):
-        await ctx.send("Only owner can use this command.")
+        await ctx.send("Only owner can use this.")
         return
 
     embed = discord.Embed(
@@ -207,7 +202,7 @@ async def main(ctx):
         ),
         color=discord.Color.blue()
     )
-    embed.set_image(url="https://i.ibb.co/JF73d5JF/ezgif-4b693c75629087.gif")
+    embed.set_image(url="https://i.ibb.co/JF73d5JF/ezgif-4b693c75629087.gif")  # your fixed image
     embed.set_footer(text="Safe Trading Server")
 
     await ctx.send(embed=embed, view=RequestView(bot, config_data))
@@ -216,7 +211,7 @@ async def main(ctx):
 @bot.command()
 async def index(ctx):
     if not is_owner(ctx.author):
-        await ctx.send("Only owner can use this command.")
+        await ctx.send("Only owner can use this.")
         return
 
     cfg = config_data["config"]
@@ -235,14 +230,14 @@ async def index(ctx):
         ),
         color=discord.Color.blue()
     )
-    embed.set_image(url="https://i.ibb.co/JF73d5JF/ezgif-4b693c75629087.gif")
+    embed.set_image(url="https://i.ibb.co/JF73d5JF/ezgif-4b693c75629087.gif")  # your fixed image
     embed.set_footer(text="Indexing Service")
 
     await ctx.send(embed=embed, view=IndexRequestView(bot, config_data))
 
 
 # =====================================================
-# Start bot
+# Run bot
 # =====================================================
 if __name__ == "__main__":
     token = os.getenv("DISCORD_TOKEN")
