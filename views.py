@@ -1,26 +1,159 @@
+# views.py
 import discord
-from discord import ui, Interaction, TextStyle
-import io
+from discord import ui, TextStyle, Interaction, PermissionOverwrite, CategoryChannel, Member
 
 class RequestModal(ui.Modal, title="Trade Request"):
-    other_user = ui.TextInput(label="User/ID of other person", required=True, max_length=100)
-    details = ui.TextInput(label="Details", style=TextStyle.paragraph, required=True, max_length=1000)
-    ps_join = ui.TextInput(label="can both join ps links?", required=False, max_length=200)
+    other_user = ui.TextInput(
+        label="User/ID of other person",
+        placeholder="Username, @mention or ID",
+        required=True,
+        max_length=100
+    )
+    details = ui.TextInput(
+        label="Details",
+        style=TextStyle.paragraph,
+        required=True,
+        max_length=1000
+    )
+    ps_join = ui.TextInput(
+        label="can both join ps links?",
+        placeholder="yes / no / maybe",
+        required=False,
+        max_length=200
+    )
+
+    def __init__(self, bot, config):
+        super().__init__()
+        self.bot = bot
+        self.config = config
 
     async def on_submit(self, interaction: Interaction):
         await interaction.response.defer(ephemeral=True)
-        # ticket creation logic is in main.py → create_ticket function
-        await create_ticket(interaction, self, is_index=False)
+
+        guild = interaction.guild
+        cfg = self.config["config"]
+        category = guild.get_channel(cfg["ticket_category"])
+
+        if not isinstance(category, CategoryChannel):
+            await interaction.followup.send("Ticket category is not set or invalid.", ephemeral=True)
+            return
+
+        # Generate ticket name
+        ticket_name = f"trade-{interaction.user.name.lower().replace(' ', '-')[:20]}"
+
+        # Basic overwrites
+        overwrites = {
+            guild.default_role: PermissionOverwrite(view_channel=False),
+            interaction.user: PermissionOverwrite(view_channel=True, send_messages=True),
+        }
+
+        # Add staff roles (view only)
+        for role_key in ["middleman_role", "staff_role", "owner_role"]:
+            rid = cfg.get(role_key)
+            if rid:
+                role = guild.get_role(rid)
+                if role:
+                    overwrites[role] = PermissionOverwrite(view_channel=True, send_messages=False)
+
+        # Create the channel
+        try:
+            channel = await category.create_text_channel(ticket_name, overwrites=overwrites)
+        except Exception as e:
+            await interaction.followup.send(f"Failed to create channel: {e}", ephemeral=True)
+            return
+
+        # Welcome message
+        await channel.send(
+            f"{interaction.user.mention} @Middleman",
+            embed=discord.Embed(
+                title="Welcome to your Trade Ticket!",
+                description="A middleman/staff will assist you shortly.\nPlease provide all details clearly.",
+                color=discord.Color.blue()
+            )
+        )
+
+        # Details from modal
+        details_embed = discord.Embed(title="Trade Details", color=discord.Color.blue())
+        details_embed.add_field(name="Other person", value=self.other_user.value, inline=False)
+        details_embed.add_field(name="Details", value=self.details.value, inline=False)
+        details_embed.add_field(name="PS links", value=self.ps_join.value or "Not provided", inline=False)
+
+        await channel.send(embed=details_embed)
+
+        await interaction.followup.send(
+            f"**Ticket created!** → {channel.mention}",
+            ephemeral=True
+        )
 
 
-class IndexRequestModal(ui.Modal, title="Request Indexing Service"):
-    what_index = ui.TextInput(label="What do you wanna index?", required=True, max_length=200)
-    holding = ui.TextInput(label="What are you letting us hold?", required=True, max_length=200)
-    obey_rules = ui.TextInput(label="Will you obey the staff rules?", required=True, max_length=200)
+class IndexRequestModal(ui.Modal, title="Request Indexing"):
+    what_index = ui.TextInput(label="What do you wanna index?", required=True)
+    holding = ui.TextInput(label="What are you letting us hold?", required=True)
+    obey_rules = ui.TextInput(label="Will you obey the staff rules?", required=True)
+
+    def __init__(self, bot, config):
+        super().__init__()
+        self.bot = bot
+        self.config = config
 
     async def on_submit(self, interaction: Interaction):
         await interaction.response.defer(ephemeral=True)
-        await create_ticket(interaction, self, is_index=True)
+
+        guild = interaction.guild
+        cfg = self.config["config"]
+        category = guild.get_channel(cfg["ticket_category"])
+
+        if not isinstance(category, CategoryChannel):
+            await interaction.followup.send("Ticket category is not set or invalid.", ephemeral=True)
+            return
+
+        ticket_name = f"index-{interaction.user.name.lower().replace(' ', '-')[:20]}"
+
+        overwrites = {
+            guild.default_role: PermissionOverwrite(view_channel=False),
+            interaction.user: PermissionOverwrite(view_channel=True, send_messages=True),
+        }
+
+        # Add staff roles
+        for role_key in ["middleman_role", "staff_role", "owner_role"]:
+            rid = cfg.get(role_key)
+            if rid:
+                role = guild.get_role(rid)
+                if role:
+                    overwrites[role] = PermissionOverwrite(view_channel=True, send_messages=False)
+
+        # Add index staff role (ping role)
+        if cfg.get("index_staff_role"):
+            role = guild.get_role(cfg["index_staff_role"])
+            if role:
+                overwrites[role] = PermissionOverwrite(view_channel=True, send_messages=True)
+
+        try:
+            channel = await category.create_text_channel(ticket_name, overwrites=overwrites)
+        except Exception as e:
+            await interaction.followup.send(f"Failed to create channel: {e}", ephemeral=True)
+            return
+
+        await channel.send(
+            f"{interaction.user.mention} <@&{cfg.get('index_staff_role', 'Index Staff')}>",
+            embed=discord.Embed(
+                title="Indexing Ticket Opened",
+                description="Staff will assist soon.\nPlease provide your Roblox username.",
+                color=discord.Color.blue()
+            )
+        )
+
+        details = discord.Embed(title="Indexing Request", color=discord.Color.blue())
+        details.add_field(name="What to index", value=self.what_index.value, inline=False)
+        details.add_field(name="Holding", value=self.holding.value, inline=False)
+        details.add_field(name="Obey rules", value=self.obey_rules.value, inline=False)
+
+        await channel.send(embed=details)
+
+        await interaction.followup.send(
+            f"**Indexing ticket created!** → {channel.mention}",
+            ephemeral=True
+        )
 
 
 class RequestView(ui.View):
@@ -29,9 +162,9 @@ class RequestView(ui.View):
         self.bot = bot
         self.config = config
 
-    @ui.button(label="Request", style=discord.ButtonStyle.blurple, emoji="✉️", custom_id="persistent:request_trade")
+    @ui.button(label="Request", style=discord.ButtonStyle.blurple, emoji="✉️", custom_id="trade_request")
     async def request(self, interaction: Interaction, button: ui.Button):
-        await interaction.response.send_modal(RequestModal())
+        await interaction.response.send_modal(RequestModal(self.bot, self.config))
 
 
 class IndexRequestView(ui.View):
@@ -40,78 +173,6 @@ class IndexRequestView(ui.View):
         self.bot = bot
         self.config = config
 
-    @ui.button(label="Request Index", style=discord.ButtonStyle.blurple, emoji="✉️", custom_id="persistent:request_index")
+    @ui.button(label="Request Index", style=discord.ButtonStyle.blurple, emoji="✉️", custom_id="index_request")
     async def request_index(self, interaction: Interaction, button: ui.Button):
-        await interaction.response.send_modal(IndexRequestModal())
-
-
-class TicketControlView(ui.View):
-    def __init__(self, bot, config, claimed_by=None):
-        super().__init__(timeout=None)
-        self.bot = bot
-        self.config = config
-        self.claimed_by = claimed_by
-
-        claim_btn = discord.ui.Button(label="Claim Ticket", style=discord.ButtonStyle.green, emoji="✅", custom_id="ticket:claim")
-        unclaim_btn = discord.ui.Button(label="Unclaim Ticket", style=discord.ButtonStyle.grey, emoji="🔓", custom_id="ticket:unclaim", disabled=claimed_by is not None)
-        close_btn = discord.ui.Button(label="Close Ticket", style=discord.ButtonStyle.red, emoji="✖", custom_id="ticket:close")
-        timeout_btn = discord.ui.Button(label="Timeout & Close", style=discord.ButtonStyle.danger, emoji="⏰✖", custom_id="ticket:timeoutclose")
-
-        self.add_item(claim_btn)
-        self.add_item(unclaim_btn)
-        self.add_item(close_btn)
-        self.add_item(timeout_btn)
-
-    @ui.button(custom_id="ticket:claim")
-    async def claim(self, interaction: Interaction, button: discord.ui.Button):
-        if not is_ticket_staff(interaction.user, self.config):
-            await interaction.response.send_message("Only staff can claim.", ephemeral=True)
-            return
-
-        self.claimed_by = interaction.user
-        button.disabled = True
-        self.children[1].disabled = False  # unclaim
-
-        await interaction.channel.set_permissions(interaction.guild.default_role, send_messages=False)
-        await interaction.channel.set_permissions(interaction.user, send_messages=True)
-
-        await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"**Claimed by {interaction.user.mention}**")
-
-    @ui.button(custom_id="ticket:unclaim")
-    async def unclaim(self, interaction: Interaction, button: discord.ui.Button):
-        if interaction.user != self.claimed_by:
-            await interaction.response.send_message("Only the claimer can unclaim.", ephemeral=True)
-            return
-
-        self.claimed_by = None
-        self.children[0].disabled = False
-        button.disabled = True
-
-        await interaction.channel.set_permissions(interaction.guild.default_role, send_messages=None)
-        await interaction.message.edit(view=self)
-        await interaction.response.send_message("Ticket unclaimed.")
-
-    @ui.button(custom_id="ticket:close")
-    async def close(self, interaction: Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        await close_ticket(interaction, interaction.channel, self.config, self.claimed_by, interaction.user)
-
-    @ui.button(custom_id="ticket:timeoutclose")
-    async def timeout_close(self, interaction: Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        target = None
-        for target_obj, perms in interaction.channel.overwrites.items():
-            if isinstance(target_obj, discord.Member) and perms.send_messages:
-                target = target_obj
-                break
-
-        if target:
-            try:
-                until = discord.utils.utcnow() + discord.timedelta(hours=1)
-                await target.timeout(until, reason="Violation - staff action")
-                await interaction.channel.send(f"{target.mention} timed out 1h by {interaction.user.mention}")
-            except:
-                await interaction.channel.send("Could not timeout user (check permissions).")
-
-        await close_ticket(interaction, interaction.channel, self.config, self.claimed_by, interaction.user)
+        await interaction.response.send_modal(IndexRequestModal(self.bot, self.config))
