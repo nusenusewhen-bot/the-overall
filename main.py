@@ -3,10 +3,9 @@ from discord.ext import commands
 import json
 import os
 import asyncio
-from datetime import datetime
 
 # Import views
-from views import RequestView, IndexRequestView, TicketControlView
+from views import RequestView, IndexRequestView
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -47,24 +46,15 @@ def save_config(data):
 config_data = load_config()
 
 
-def is_owner(member: discord.Member) -> bool:
+def is_owner(member):
     owner_role = config_data["config"].get("owner_role")
     if owner_role is None:
-        return True  # fallback so you can test
+        return True  # you can use commands for now
     return owner_role in [r.id for r in member.roles]
 
 
-def is_ticket_staff(member: discord.Member) -> bool:
-    cfg = config_data["config"]
-    roles = [r.id for r in member.roles]
-    return (
-        cfg.get("middleman_role") in roles or
-        cfg.get("staff_role") in roles
-    )
-
-
 # =====================================================
-# Ticket creation function - GLOBAL in main.py
+# CREATE TICKET FUNCTION - THIS IS WHAT CREATES THE CHANNEL
 # =====================================================
 async def create_ticket(interaction: discord.Interaction, modal, is_index: bool = False):
     cfg = config_data["config"]
@@ -82,6 +72,7 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
         interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
     }
 
+    # Add staff roles (view only)
     for key in ["middleman_role", "staff_role", "owner_role"]:
         rid = cfg.get(key)
         if rid:
@@ -89,6 +80,7 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
             if role:
                 overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=False)
 
+    # Add index staff role if indexing ticket
     if is_index and cfg.get("index_staff_role"):
         role = interaction.guild.get_role(cfg["index_staff_role"])
         if role:
@@ -97,11 +89,11 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
     try:
         channel = await category.create_text_channel(name, overwrites=overwrites)
     except Exception as e:
-        await interaction.followup.send(f"Failed to create ticket: {str(e)}", ephemeral=True)
+        await interaction.followup.send(f"Failed to create channel: {str(e)}", ephemeral=True)
         return
 
+    # Welcome message + ping middleman role
     middleman_mention = f"<@&{cfg.get('middleman_role')}>" if cfg.get("middleman_role") else "@Middleman"
-
     await channel.send(
         f"{interaction.user.mention} {middleman_mention}",
         embed=discord.Embed(
@@ -111,6 +103,7 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
         )
     )
 
+    # Details from modal
     details = discord.Embed(title="Ticket Details", color=discord.Color.blue())
     if is_index:
         details.add_field(name="What to index", value=modal.what_index.value, inline=False)
@@ -121,26 +114,19 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
         details.add_field(name="Details", value=modal.details.value, inline=False)
         details.add_field(name="PS links", value=modal.ps_join.value or "Not provided", inline=False)
 
-    await channel.send(embed=details, view=TicketControlView(bot, config_data))
+    await channel.send(embed=details)
 
     await interaction.followup.send(f"**Ticket created!** → {channel.mention}", ephemeral=True)
 
 
-# =====================================================
-# Events
-# =====================================================
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
     bot.add_view(RequestView(bot, config_data))
     bot.add_view(IndexRequestView(bot, config_data))
-    bot.add_view(TicketControlView(bot, config_data))
     print("Persistent views registered")
 
 
-# =====================================================
-# Redeem & mode selection
-# =====================================================
 @bot.command()
 async def redeem(ctx, *, key: str):
     if key not in config_data["keys"]:
@@ -152,13 +138,7 @@ async def redeem(ctx, *, key: str):
     config_data["activated_users"][str(ctx.author.id)] = {"mode": None}
     save_config(config_data)
 
-    await ctx.send(
-        "Valid key!\n\n"
-        "Choose Mode:\n"
-        "1 = Middleman\n"
-        "2 = Ticket bot\n\n"
-        "Reply with **1** or **2**."
-    )
+    await ctx.send("Valid key! Reply with **1** (Middleman) or **2** (Ticket bot)")
 
 
 @bot.event
@@ -175,25 +155,19 @@ async def on_message(message):
                 mode = int(content)
                 state["mode"] = mode
                 save_config(config_data)
-                reply = (
-                    "Middleman mode selected! Type **$setuptick** to setup."
-                    if mode == 1 else
-                    "Ticket bot mode selected! Type **$setuptick** to setup."
+                await message.channel.send(
+                    f"{'Middleman' if mode == 1 else 'Ticket bot'} mode selected! Use **$setuptick** to setup."
                 )
-                await message.channel.send(reply)
 
     await bot.process_commands(message)
 
 
-# =====================================================
-# Setup wizard
-# =====================================================
 @bot.command(name="setuptick")
 async def setuptick(ctx):
     uid = str(ctx.author.id)
 
     if uid not in config_data["activated_users"]:
-        await ctx.send("Redeem a key first with `$redeem <key>`.")
+        await ctx.send("Redeem a key first.")
         return
 
     state = config_data["activated_users"][uid]
@@ -210,7 +184,7 @@ async def setuptick(ctx):
         ("Transcript channel ID", "transcript_channel")
     ]
 
-    await ctx.send("**Setup started**\nAnswer with IDs. Type `cancel` to stop.")
+    await ctx.send("**Setup started** - answer with IDs only. Type `cancel` to stop.")
 
     for q_text, key in questions:
         await ctx.send(f"**{q_text}**")
@@ -219,12 +193,12 @@ async def setuptick(ctx):
             return m.author.id == ctx.author.id and m.channel.id == ctx.channel.id
 
         try:
-            msg = await bot.wait_for("message", check=check, timeout=120.0)
+            msg = await bot.wait_for("message", check=check, timeout=120)
             if msg.content.lower() == "cancel":
-                await ctx.send("Setup cancelled.")
+                await ctx.send("Cancelled.")
                 return
             if not msg.content.strip().isdigit():
-                await ctx.send("Only numbers allowed. Cancelled.")
+                await ctx.send("Only numbers. Cancelled.")
                 return
 
             config_data["config"][key] = int(msg.content.strip())
@@ -232,18 +206,15 @@ async def setuptick(ctx):
             await ctx.send(f"Saved: **{msg.content.strip()}**")
 
         except asyncio.TimeoutError:
-            await ctx.send("Timed out. Cancelled.")
+            await ctx.send("Timed out.")
             return
 
     del config_data["activated_users"][uid]
     save_config(config_data)
 
-    await ctx.send("**Setup complete!** Use `$main` and `$index`.")
+    await ctx.send("**Setup done!** Use `$main` and `$index`.")
 
 
-# =====================================================
-# Panels
-# =====================================================
 @bot.command()
 async def main(ctx):
     if not is_owner(ctx.author):
@@ -258,9 +229,9 @@ async def main(ctx):
             "• We provide safe traders between 2 parties\n"
             "• We provide fast and easy deals\n\n"
             "**Important notes**\n"
-            "• Both parties must agree before opening a ticket\n"
-            "• Fake/Troll tickets will result into a ban or ticket blacklist\n"
-            "• Follow discord ToS and server guidelines"
+            "• Both parties must agree\n"
+            "• Fake/Troll tickets → ban or blacklist\n"
+            "• Follow Discord ToS"
         ),
         color=discord.Color.blue()
     )
@@ -282,13 +253,13 @@ async def index(ctx):
     embed = discord.Embed(
         title="Indexing Services",
         description=(
-            f"• Open this ticket if you would like a Indexing service to help finish your index and complete your base.\n\n"
-            f"• You're going to have to pay first before we let you start indexing.\n\n"
-            f"**When opening a ticket:**\n"
-            f"• Wait for a {staff_mention} to answer your ticket.\n"
-            "• Be nice and kind to the staff and be patient.\n"
-            "• State your roblox username on the account you want to complete the index in.\n\n"
-            "If not following so your ticket will be deleted and you will be timed out for 1 hour ♥️"
+            f"• Open this ticket if you would like Indexing service.\n\n"
+            f"• Pay first.\n\n"
+            f"**When opening:**\n"
+            f"• Wait for {staff_mention}\n"
+            "• Be nice\n"
+            "• State Roblox username\n\n"
+            "Not following → ticket deleted + 1h timeout"
         ),
         color=discord.Color.blue()
     )
@@ -298,14 +269,11 @@ async def index(ctx):
     await ctx.send(embed=embed, view=IndexRequestView(bot, config_data))
 
 
-# =====================================================
-# Run bot
-# =====================================================
 if __name__ == "__main__":
     token = os.getenv("DISCORD_TOKEN")
     if not token:
-        print("ERROR: DISCORD_TOKEN not set in environment variables")
+        print("No token")
         exit(1)
 
-    print("Starting bot...")
+    print("Starting...")
     bot.run(token)
