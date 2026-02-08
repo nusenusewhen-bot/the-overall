@@ -17,7 +17,7 @@ class RequestModal(ui.Modal, title="Trade Request"):
             await create_ticket(interaction, self, is_index=False)
         except Exception as e:
             print(f"Trade modal error: {e}")
-            await interaction.followup.send(f"Error: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"Error creating ticket: {str(e)}", ephemeral=True)
 
 
 class IndexRequestModal(ui.Modal, title="Request Index"):
@@ -36,7 +36,7 @@ class IndexRequestModal(ui.Modal, title="Request Index"):
             await create_ticket(interaction, self, is_index=True)
         except Exception as e:
             print(f"Index modal error: {e}")
-            await interaction.followup.send(f"Error: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"Error creating ticket: {str(e)}", ephemeral=True)
 
 
 class RequestView(ui.View):
