@@ -1,5 +1,3 @@
-# main.py - FULL FIXED VERSION (no more errors, ticket creation works)
-
 import discord
 from discord.ext import commands
 import json
@@ -8,7 +6,7 @@ import asyncio
 from datetime import datetime
 
 # Import views
-from views import RequestView, IndexRequestView
+from views import RequestView, IndexRequestView, TicketControlView
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -52,7 +50,7 @@ config_data = load_config()
 def is_owner(member: discord.Member) -> bool:
     owner_role = config_data["config"].get("owner_role")
     if owner_role is None:
-        return True  # fallback so you can test
+        return True  # fallback for testing
     return owner_role in [r.id for r in member.roles]
 
 
@@ -66,7 +64,7 @@ def is_ticket_staff(member: discord.Member) -> bool:
 
 
 # =====================================================
-# Ticket creation function - GLOBAL in main.py
+# Ticket creation function
 # =====================================================
 async def create_ticket(interaction: discord.Interaction, modal, is_index: bool = False):
     cfg = config_data["config"]
@@ -98,7 +96,9 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
 
     try:
         channel = await category.create_text_channel(name, overwrites=overwrites)
+        print(f"[SUCCESS] Ticket created: {channel.name}")
     except Exception as e:
+        print(f"[ERROR] Ticket creation failed: {str(e)}")
         await interaction.followup.send(f"Failed to create ticket: {str(e)}", ephemeral=True)
         return
 
@@ -123,7 +123,7 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
         details.add_field(name="Details", value=modal.details.value, inline=False)
         details.add_field(name="PS links", value=modal.ps_join.value or "Not provided", inline=False)
 
-    await channel.send(embed=details)
+    await channel.send(embed=details, view=TicketControlView(bot, config_data))
 
     await interaction.followup.send(f"**Ticket created!** → {channel.mention}", ephemeral=True)
 
@@ -136,6 +136,7 @@ async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
     bot.add_view(RequestView(bot, config_data))
     bot.add_view(IndexRequestView(bot, config_data))
+    bot.add_view(TicketControlView(bot, config_data))
     print("Persistent views registered")
 
 
@@ -153,13 +154,7 @@ async def redeem(ctx, *, key: str):
     config_data["activated_users"][str(ctx.author.id)] = {"mode": None}
     save_config(config_data)
 
-    await ctx.send(
-        "Valid key!\n\n"
-        "Choose Mode:\n"
-        "1 = Middleman\n"
-        "2 = Ticket bot\n\n"
-        "Reply with **1** or **2**."
-    )
+    await ctx.send("Valid key! Reply with **1** (Middleman) or **2** (Ticket bot)")
 
 
 @bot.event
@@ -278,7 +273,7 @@ async def index(ctx):
         return
 
     cfg = config_data["config"]
-    staff_mention = f"<@&{cfg.get('index_staff_role')}>" if cfg.get('index_staff_role') else "@Index Staff"
+    staff_mention = f"<@&{cfg.get('index_staff_role')}>" if cfg.get("index_staff_role") else "@Index Staff"
 
     embed = discord.Embed(
         title="Indexing Services",
@@ -289,7 +284,7 @@ async def index(ctx):
             f"• Wait for a {staff_mention} to answer your ticket.\n"
             "• Be nice and kind to the staff and be patient.\n"
             "• State your roblox username on the account you want to complete the index in.\n\n"
-            "If not following so your ticket will be deleted and you will be timed out for 1 hour "
+            "If not following so your ticket will be deleted and you will be timed out for 1 hour ♥️"
         ),
         color=discord.Color.blue()
     )
