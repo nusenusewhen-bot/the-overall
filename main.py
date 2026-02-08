@@ -50,7 +50,7 @@ config_data = load_config()
 def is_owner(member: discord.Member) -> bool:
     owner_role = config_data["config"].get("owner_role")
     if owner_role is None:
-        return True  # fallback for testing
+        return True  # fallback so you can test
     return owner_role in [r.id for r in member.roles]
 
 
@@ -61,71 +61,6 @@ def is_ticket_staff(member: discord.Member) -> bool:
         cfg.get("middleman_role") in roles or
         cfg.get("staff_role") in roles
     )
-
-
-# =====================================================
-# Ticket creation function
-# =====================================================
-async def create_ticket(interaction: discord.Interaction, modal, is_index: bool = False):
-    cfg = config_data["config"]
-    category = interaction.guild.get_channel(cfg["ticket_category"])
-
-    if not category:
-        await interaction.followup.send("Ticket category not set in config.", ephemeral=True)
-        return
-
-    prefix = "index-" if is_index else "trade-"
-    name = f"{prefix}{interaction.user.name.lower().replace(' ', '-')[:20]}"
-
-    overwrites = {
-        interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
-        interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
-    }
-
-    for key in ["middleman_role", "staff_role", "owner_role"]:
-        rid = cfg.get(key)
-        if rid:
-            role = interaction.guild.get_role(rid)
-            if role:
-                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=False)
-
-    if is_index and cfg.get("index_staff_role"):
-        role = interaction.guild.get_role(cfg["index_staff_role"])
-        if role:
-            overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
-
-    try:
-        channel = await category.create_text_channel(name, overwrites=overwrites)
-        print(f"[SUCCESS] Ticket created: {channel.name}")
-    except Exception as e:
-        print(f"[ERROR] Ticket creation failed: {str(e)}")
-        await interaction.followup.send(f"Failed to create ticket: {str(e)}", ephemeral=True)
-        return
-
-    middleman_mention = f"<@&{cfg.get('middleman_role')}>" if cfg.get("middleman_role") else "@Middleman"
-
-    await channel.send(
-        f"{interaction.user.mention} {middleman_mention}",
-        embed=discord.Embed(
-            title="Ticket Opened",
-            description="Staff will assist you shortly.\nProvide all details.",
-            color=discord.Color.blue()
-        )
-    )
-
-    details = discord.Embed(title="Ticket Details", color=discord.Color.blue())
-    if is_index:
-        details.add_field(name="What to index", value=modal.what_index.value, inline=False)
-        details.add_field(name="Holding", value=modal.holding.value, inline=False)
-        details.add_field(name="Obey rules", value=modal.obey_rules.value, inline=False)
-    else:
-        details.add_field(name="Other person", value=modal.other_user.value, inline=False)
-        details.add_field(name="Details", value=modal.details.value, inline=False)
-        details.add_field(name="PS links", value=modal.ps_join.value or "Not provided", inline=False)
-
-    await channel.send(embed=details, view=TicketControlView(bot, config_data))
-
-    await interaction.followup.send(f"**Ticket created!** → {channel.mention}", ephemeral=True)
 
 
 # =====================================================
@@ -154,7 +89,13 @@ async def redeem(ctx, *, key: str):
     config_data["activated_users"][str(ctx.author.id)] = {"mode": None}
     save_config(config_data)
 
-    await ctx.send("Valid key! Reply with **1** (Middleman) or **2** (Ticket bot)")
+    await ctx.send(
+        "Valid key!\n\n"
+        "Choose Mode:\n"
+        "1 = Middleman\n"
+        "2 = Ticket bot\n\n"
+        "Reply with **1** or **2**."
+    )
 
 
 @bot.event
