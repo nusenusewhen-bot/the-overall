@@ -7,7 +7,7 @@ class RequestModal(ui.Modal, title="Trade Request"):
     ps_join = ui.TextInput(label="can both join ps links?", required=False)
 
     def __init__(self, bot, config):
-        super().__init__()
+        super().__init()
         self.bot = bot
         self.config = config
 
@@ -26,7 +26,7 @@ class IndexRequestModal(ui.Modal, title="Request Index"):
     obey_rules = ui.TextInput(label="Will you obey the staff rules?", required=True)
 
     def __init__(self, bot, config):
-        super().__init__()
+        super().__init()
         self.bot = bot
         self.config = config
 
@@ -41,7 +41,7 @@ class IndexRequestModal(ui.Modal, title="Request Index"):
 
 class RequestView(ui.View):
     def __init__(self, bot, config):
-        super().__init__(timeout=None)
+        super().__init()(timeout=None)
         self.bot = bot
         self.config = config
 
@@ -52,7 +52,7 @@ class RequestView(ui.View):
 
 class IndexRequestView(ui.View):
     def __init__(self, bot, config):
-        super().__init__(timeout=None)
+        super().__init()(timeout=None)
         self.bot = bot
         self.config = config
 
@@ -63,7 +63,7 @@ class IndexRequestView(ui.View):
 
 class TicketControlView(ui.View):
     def __init__(self, bot, config, claimed_by=None):
-        super().__init__(timeout=None)
+        super().__init()(timeout=None)
         self.bot = bot
         self.config = config
         self.claimed_by = claimed_by
