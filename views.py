@@ -58,3 +58,4 @@ class IndexRequestView(ui.View):
 
     @ui.button(label="Request Index", style=discord.ButtonStyle.blurple, emoji="✉️", custom_id="index_request")
     async def request_index(self, interaction: Interaction, button: ui.Button):
+        await interaction.response.send_modal(IndexRequestModal(self.bot, self.config))
