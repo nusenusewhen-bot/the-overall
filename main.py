@@ -5,7 +5,7 @@ import os
 import asyncio
 from datetime import datetime
 
-# Import views (make sure views.py exists)
+# Import views
 from views import RequestView, IndexRequestView
 
 intents = discord.Intents.default()
@@ -50,8 +50,73 @@ config_data = load_config()
 def is_owner(member: discord.Member) -> bool:
     owner_role = config_data["config"].get("owner_role")
     if owner_role is None:
-        return True  # fallback so you can test
+        return True  # fallback
     return owner_role in [r.id for r in member.roles]
+
+
+# =====================================================
+# Ticket creation function
+# =====================================================
+async def create_ticket(interaction: discord.Interaction, modal, is_index: bool = False):
+    cfg = config_data["config"]
+    category = interaction.guild.get_channel(cfg["ticket_category"])
+
+    if not category:
+        await interaction.followup.send("Ticket category not set in config.", ephemeral=True)
+        return
+
+    prefix = "index-" if is_index else "trade-"
+    name = f"{prefix}{interaction.user.name.lower().replace(' ', '-')[:20]}"
+
+    overwrites = {
+        interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+    }
+
+    for key in ["middleman_role", "staff_role", "owner_role"]:
+        rid = cfg.get(key)
+        if rid:
+            role = interaction.guild.get_role(rid)
+            if role:
+                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=False)
+
+    if is_index and cfg.get("index_staff_role"):
+        role = interaction.guild.get_role(cfg["index_staff_role"])
+        if role:
+            overwrites[role] = PermissionOverwrite(view_channel=True, send_messages=True)
+
+    try:
+        channel = await category.create_text_channel(name, overwrites=overwrites)
+        print(f"[SUCCESS] Created ticket: {channel.name}")
+    except Exception as e:
+        print(f"[ERROR] Failed to create ticket: {str(e)}")
+        await interaction.followup.send(f"Failed to create ticket: {str(e)}", ephemeral=True)
+        return
+
+    middleman_mention = f"<@&{cfg.get('middleman_role')}>" if cfg.get("middleman_role") else "@Middleman"
+
+    await channel.send(
+        f"{interaction.user.mention} {middleman_mention}",
+        embed=discord.Embed(
+            title="Ticket Opened",
+            description="Staff will assist you shortly.\nPlease provide all details.",
+            color=discord.Color.blue()
+        )
+    )
+
+    details = discord.Embed(title="Ticket Details", color=discord.Color.blue())
+    if is_index:
+        details.add_field(name="What to index", value=modal.what_index.value, inline=False)
+        details.add_field(name="Holding", value=modal.holding.value, inline=False)
+        details.add_field(name="Obey rules", value=modal.obey_rules.value, inline=False)
+    else:
+        details.add_field(name="Other person", value=modal.other_user.value, inline=False)
+        details.add_field(name="Details", value=modal.details.value, inline=False)
+        details.add_field(name="PS links", value=modal.ps_join.value or "Not provided", inline=False)
+
+    await channel.send(embed=details)
+
+    await interaction.followup.send(f"**Ticket created!** → {channel.mention}", ephemeral=True)
 
 
 # =====================================================
@@ -63,6 +128,19 @@ async def on_ready():
     bot.add_view(RequestView(bot, config_data))
     bot.add_view(IndexRequestView(bot, config_data))
     print("Persistent views registered")
+
+
+# Catch ALL interaction errors (this fixes "interaction failed" in most cases)
+@bot.event
+async def on_interaction(interaction: discord.Interaction):
+    if interaction.type == discord.InteractionType.component:
+        print(f"[INTERACTION] Button pressed: {interaction.data['custom_id']} by {interaction.user}")
+    if interaction.type == discord.InteractionType.modal_submit:
+        print(f"[INTERACTION] Modal submitted by {interaction.user}")
+
+    # If it's not handled, log it
+    if not interaction.is_expired():
+        print(f"[INTERACTION] Unhandled interaction type: {interaction.type}")
 
 
 # =====================================================
