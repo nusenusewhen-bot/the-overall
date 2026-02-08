@@ -3,10 +3,9 @@ from discord.ext import commands
 import json
 import os
 import asyncio
-from datetime import datetime
 
 # Import views
-from views import RequestView, IndexRequestView, TicketControlView
+from views import RequestView, IndexRequestView
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -50,21 +49,12 @@ config_data = load_config()
 def is_owner(member: discord.Member) -> bool:
     owner_role = config_data["config"].get("owner_role")
     if owner_role is None:
-        return True  # fallback so you can test
+        return True  # allow you to test even before setup
     return owner_role in [r.id for r in member.roles]
 
 
-def is_ticket_staff(member: discord.Member) -> bool:
-    cfg = config_data["config"]
-    roles = [r.id for r in member.roles]
-    return (
-        cfg.get("middleman_role") in roles or
-        cfg.get("staff_role") in roles
-    )
-
-
 # =====================================================
-# Ticket creation function - GLOBAL in main.py
+# Ticket creation function
 # =====================================================
 async def create_ticket(interaction: discord.Interaction, modal, is_index: bool = False):
     cfg = config_data["config"]
@@ -106,7 +96,7 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
         f"{interaction.user.mention} {middleman_mention}",
         embed=discord.Embed(
             title="Ticket Opened",
-            description="Staff will assist you shortly.\nProvide all details.",
+            description="Staff will assist you shortly.\nPlease provide all details.",
             color=discord.Color.blue()
         )
     )
@@ -121,26 +111,19 @@ async def create_ticket(interaction: discord.Interaction, modal, is_index: bool 
         details.add_field(name="Details", value=modal.details.value, inline=False)
         details.add_field(name="PS links", value=modal.ps_join.value or "Not provided", inline=False)
 
-    await channel.send(embed=details, view=TicketControlView(bot, config_data))
+    await channel.send(embed=details)
 
     await interaction.followup.send(f"**Ticket created!** → {channel.mention}", ephemeral=True)
 
 
-# =====================================================
-# Events
-# =====================================================
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} ({bot.user.id})")
     bot.add_view(RequestView(bot, config_data))
     bot.add_view(IndexRequestView(bot, config_data))
-    bot.add_view(TicketControlView(bot, config_data))
     print("Persistent views registered")
 
 
-# =====================================================
-# Redeem & mode selection
-# =====================================================
 @bot.command()
 async def redeem(ctx, *, key: str):
     if key not in config_data["keys"]:
@@ -185,9 +168,6 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-# =====================================================
-# Setup wizard
-# =====================================================
 @bot.command(name="setuptick")
 async def setuptick(ctx):
     uid = str(ctx.author.id)
@@ -241,9 +221,6 @@ async def setuptick(ctx):
     await ctx.send("**Setup complete!** Use `$main` and `$index`.")
 
 
-# =====================================================
-# Panels
-# =====================================================
 @bot.command()
 async def main(ctx):
     if not is_owner(ctx.author):
@@ -298,13 +275,10 @@ async def index(ctx):
     await ctx.send(embed=embed, view=IndexRequestView(bot, config_data))
 
 
-# =====================================================
-# Run bot
-# =====================================================
 if __name__ == "__main__":
     token = os.getenv("DISCORD_TOKEN")
     if not token:
-        print("ERROR: DISCORD_TOKEN not set in environment variables")
+        print("ERROR: DISCORD_TOKEN not set")
         exit(1)
 
     print("Starting bot...")
