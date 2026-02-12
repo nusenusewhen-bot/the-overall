@@ -1,119 +1,137 @@
+# views.py
 import discord
-from discord import ui, TextStyle, Interaction, PermissionOverwrite
+from discord.ui import View, Button, Select, Modal, TextInput
+from discord import ButtonStyle, SelectOption
 
-class RequestModal(ui.Modal, title="Trade Request"):
-    other_user = ui.TextInput(label="User/ID of other person", required=True)
-    details = ui.TextInput(label="Details", style=TextStyle.paragraph, required=True)
-    ps_join = ui.TextInput(label="can both join ps links?", required=False)
-
-    def __init__(self, bot, config):
-        super().__init()
-        self.bot = bot
-        self.config = config
-
-    async def on_submit(self, interaction: Interaction):
-        try:
-            await interaction.response.defer(ephemeral=True)
-            await create_ticket(interaction, self, is_index=False)
-        except Exception as e:
-            print(f"Trade modal error: {e}")
-            await interaction.followup.send(f"Error creating ticket: {str(e)}", ephemeral=True)
-
-
-class IndexRequestModal(ui.Modal, title="Request Index"):
-    what_index = ui.TextInput(label="What do you wanna index?", required=True)
-    holding = ui.TextInput(label="What are you letting us hold?", required=True)
-    obey_rules = ui.TextInput(label="Will you obey the staff rules?", required=True)
-
-    def __init__(self, bot, config):
-        super().__init()
-        self.bot = bot
-        self.config = config
-
-    async def on_submit(self, interaction: Interaction):
-        try:
-            await interaction.response.defer(ephemeral=True)
-            await create_ticket(interaction, self, is_index=True)
-        except Exception as e:
-            print(f"Index modal error: {e}")
-            await interaction.followup.send(f"Error creating ticket: {str(e)}", ephemeral=True)
-
-
-class RequestView(ui.View):
-    def __init__(self, bot, config):
-        super().__init()(timeout=None)
-        self.bot = bot
-        self.config = config
-
-    @ui.button(label="Request", style=discord.ButtonStyle.blurple, emoji="✉️", custom_id="trade_request")
-    async def request(self, interaction: Interaction, button: ui.Button):
-        await interaction.response.send_modal(RequestModal(self.bot, self.config))
-
-
-class IndexRequestView(ui.View):
-    def __init__(self, bot, config):
-        super().__init()(timeout=None)
-        self.bot = bot
-        self.config = config
-
-    @ui.button(label="Request Index", style=discord.ButtonStyle.blurple, emoji="✉️", custom_id="index_request")
-    async def request_index(self, interaction: Interaction, button: ui.Button):
-        await interaction.response.send_modal(IndexRequestModal(self.bot, self.config))
-
-
-class TicketControlView(ui.View):
-    def __init__(self, bot, config, claimed_by=None):
-        super().__init()(timeout=None)
-        self.bot = bot
-        self.config = config
+class TicketActionView(View):
+    """Persistent view for claim/unclaim/close in ticket channels"""
+    def __init__(self, claimed_by=None):
+        super().__init__(timeout=None)  # persistent = no timeout
         self.claimed_by = claimed_by
 
-        self.claim_btn = ui.Button(label="Claim", style=discord.ButtonStyle.green, emoji="✅", disabled=bool(claimed_by), custom_id="ticket_claim")
-        self.unclaim_btn = ui.Button(label="Unclaim", style=discord.ButtonStyle.grey, emoji="🔓", disabled=not claimed_by, custom_id="ticket_unclaim")
-        self.close_btn = ui.Button(label="Close", style=discord.ButtonStyle.red, emoji="✖️", custom_id="ticket_close")
+        self.claim_button = Button(
+            label="Claim",
+            style=ButtonStyle.green,
+            custom_id="claim_ticket",
+            disabled=bool(claimed_by)
+        )
+        self.unclaim_button = Button(
+            label="Unclaim",
+            style=ButtonStyle.red,
+            custom_id="unclaim_ticket",
+            disabled=not claimed_by
+        )
+        self.close_button = Button(
+            label="Close",
+            style=ButtonStyle.gray,
+            custom_id="close_ticket"
+        )
 
-        self.add_item(self.claim_btn)
-        self.add_item(self.unclaim_btn)
-        self.add_item(self.close_btn)
+        self.add_item(self.claim_button)
+        self.add_item(self.unclaim_button)
+        self.add_item(self.close_button)
 
-    @ui.button(label="Claim", style=discord.ButtonStyle.green, emoji="✅", custom_id="ticket_claim")
-    async def claim(self, interaction: Interaction, button: ui.Button):
-        if self.claimed_by:
-            await interaction.response.send_message("Already claimed.", ephemeral=True)
-            return
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Optional: only allow certain roles to interact
+        return True  # or add role check here
 
-        if not is_ticket_staff(interaction.user):
-            await interaction.response.send_message("Only staff can claim.", ephemeral=True)
-            return
+class MiddlemanRecruitView(View):
+    """View for $earn - Join Us / Not Interested"""
+    def __init__(self):
+        super().__init__(timeout=None)  # persistent
 
-        self.claimed_by = interaction.user
-        self.claim_btn.disabled = True
-        self.unclaim_btn.disabled = False
+        self.add_item(Button(
+            label="Join Us",
+            style=ButtonStyle.primary,
+            custom_id="join_hitter"
+        ))
+        self.add_item(Button(
+            label="Not Interested",
+            style=ButtonStyle.danger,
+            custom_id="not_interested_hitter"
+        ))
 
-        await interaction.channel.set_permissions(interaction.guild.default_role, send_messages=False)
-        await interaction.channel.set_permissions(interaction.user, send_messages=True)
+class MMInfoView(View):
+    """View for $mminfo - Understood / Didn't Understand"""
+    def __init__(self):
+        super().__init__(timeout=None)
 
-        await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"**Claimed by {interaction.user.mention}**")
+        self.add_item(Button(
+            label="Understood",
+            style=ButtonStyle.success,
+            custom_id="understood_mm"
+        ))
+        self.add_item(Button(
+            label="Didn't Understand",
+            style=ButtonStyle.danger,
+            custom_id="didnt_understand_mm"
+        ))
 
+class TicketRequestSelect(discord.ui.Select):
+    """Select menu for $support - Report / Support"""
+    def __init__(self):
+        options = [
+            SelectOption(label="Report", value="report", emoji="🛡️"),
+            SelectOption(label="Support", value="support", emoji="🆘")
+        ]
+        super().__init__(
+            placeholder="Select ticket type...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="support_ticket_select"
+        )
 
-    @ui.button(label="Unclaim", style=discord.ButtonStyle.grey, emoji="🔓", custom_id="ticket_unclaim")
-    async def unclaim(self, interaction: Interaction, button: ui.Button):
-        if interaction.user != self.claimed_by:
-            await interaction.response.send_message("Only claimer can unclaim.", ephemeral=True)
-            return
+    async def callback(self, interaction: discord.Interaction):
+        value = self.values[0]
+        if value == "report":
+            modal = ReportModal()
+        else:
+            modal = SupportModal()
+        await interaction.response.send_modal(modal)
 
-        self.claimed_by = None
-        self.claim_btn.disabled = False
-        self.unclaim_btn.disabled = True
+class RequestTicketButton(View):
+    """View for $ticket1 - Request button"""
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(Button(
+            label="Request",
+            style=ButtonStyle.primary,
+            emoji="📩",
+            custom_id="request_ticket"
+        ))
 
-        await interaction.channel.set_permissions(interaction.guild.default_role, send_messages=None)
+# Example modals (add more as needed)
+class ReportModal(Modal, title="Report Ticket"):
+    who_report = TextInput(
+        label="Who do you want to report?",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    description = TextInput(
+        label="Description",
+        style=discord.TextStyle.paragraph,
+        required=True
+    )
 
-        await interaction.message.edit(view=self)
-        await interaction.response.send_message("Ticket unclaimed.")
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.send_message("Report submitted!", ephemeral=True)
+        # Here you can create ticket channel, etc.
 
+class SupportModal(Modal, title="Support Ticket"):
+    help_with = TextInput(
+        label="What do you need help with?",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    description = TextInput(
+        label="Description",
+        style=discord.TextStyle.paragraph,
+        required=True
+    )
 
-    @ui.button(label="Close", style=discord.ButtonStyle.red, emoji="✖️", custom_id="ticket_close")
-    async def close(self, interaction: Interaction, button: ui.Button):
-        await interaction.response.send_message("Closing ticket...")
-        await interaction.channel.delete()
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.send_message("Support request sent!", ephemeral=True)
+        # Ticket creation logic here
+
+# Add more views/modals/selects as you expand the bot
