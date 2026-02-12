@@ -1,4 +1,4 @@
-# main.py — FULL FIXED BOT (discord.py 2.4.0) — No duplicate $help
+# main.py — COMPLETE BOT (discord.py 2.4.0) — Everything fixed & included
 import discord
 from discord.ext import commands
 import json
@@ -25,7 +25,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix=config['prefix'], intents=intents)
 
-# Remove built-in help command (we'll use discord.py's default one)
+# Remove built-in help to use our custom one
 bot.remove_command('help')
 
 DATA_FILE = 'data.txt'
@@ -364,6 +364,16 @@ async def ticket1(ctx):
 
     await ctx.send(embed=embed, view=view)
 
+@bot.command()
+async def help(ctx):
+    embed = discord.Embed(color=0x0099ff, title="Bot Commands", description="Prefix: $")
+    embed.add_field(name="Setup", value="$shazam — Ticket setup\n$shazam1 — Middleman setup", inline=False)
+    embed.add_field(name="Middleman (needs mode + role)", value="$earn\n$mmfee\n$mminfo", inline=False)
+    embed.add_field(name="Tickets (needs redeem)", value="$ticket1\n$index\n$seller\n$shop\n$support\nInside tickets: $add, $claim, $unclaim, $transfer, $close", inline=False)
+    embed.set_footer(text="All commands available after redeem & mode activation")
+
+    await ctx.send(embed=embed)
+
 @bot.event
 async def on_interaction(interaction):
     if interaction.type != discord.InteractionType.component:
@@ -418,12 +428,5 @@ async def on_interaction(interaction):
             f"{interaction.user.mention} {text} the middleman service.",
             ephemeral=False
         )
-
-    elif interaction.data['custom_id'] == 'request_ticket':
-        modal = discord.ui.Modal(title="Trade Ticket Form")
-        modal.add_item(discord.ui.TextInput(label="Other person's ID / username?", required=True))
-        modal.add_item(discord.ui.TextInput(label="Describe the trade", style=discord.TextStyle.paragraph, required=True))
-        modal.add_item(discord.ui.TextInput(label="Can both join private servers?", required=False))
-        await interaction.response.send_modal(modal)
 
 bot.run(TOKEN)
