@@ -1,195 +1,348 @@
+# main.py — FULL BOT (discord.py 2.4.0) — Everything included & fixed
 import discord
 from discord.ext import commands
 import json
 import os
+from dotenv import load_dotenv
 import asyncio
-from datetime import datetime
+import traceback
+import sys
 
-# Import views
-from views import RequestView, IndexRequestView, TicketControlView
+load_dotenv()
+TOKEN = os.getenv('TOKEN')
+
+# Load config safely
+try:
+    with open('config.json', 'r') as f:
+        config = json.load(f)
+except Exception as e:
+    print(f"[CRITICAL] Failed to load config.json: {e}")
+    sys.exit(1)
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="$", intents=intents)
+bot = commands.Bot(command_prefix=config['prefix'], intents=intents)
 
-CONFIG_FILE = "config.json"
+DATA_FILE = 'data.txt'
 
+data = {
+    'usedKeys': [],
+    'redeemedUsers': set(),
+    'userModes': {},
+    'redeemPending': {},
+    'guilds': {},
+    'tickets': {},
+    'vouches': {},
+    'afk': {}
+}
 
-def load_config():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+if os.path.exists(DATA_FILE):
+    try:
+        with open(DATA_FILE, 'r') as f:
+            content = f.read().strip()
+            if content:
+                loaded = json.loads(content)
+                data['usedKeys'] = loaded.get('usedKeys', [])
+                data['redeemedUsers'] = set(loaded.get('redeemedUsers', []))
+                data['userModes'] = loaded.get('userModes', {})
+                data['redeemPending'] = loaded.get('redeemPending', {})
+                data['guilds'] = loaded.get('guilds', {})
+                data['tickets'] = loaded.get('tickets', {})
+                data['vouches'] = loaded.get('vouches', {})
+                data['afk'] = loaded.get('afk', {})
+        print('[DATA] Loaded from data.txt')
+    except Exception as e:
+        print(f'[DATA] Load failed: {e}')
 
-    default = {
-        "keys": [],
-        "used_keys": [],
-        "activated_users": {},
-        "config": {
-            "middleman_role": None,
-            "index_staff_role": None,
-            "staff_role": None,
-            "owner_role": None,
-            "ticket_category": None,
-            "transcript_channel": None
-        }
-    }
-    save_config(default)
-    return default
+def save_data():
+    try:
+        serial = {**data, 'redeemedUsers': list(data['redeemedUsers'])}
+        with open(DATA_FILE, 'w') as f:
+            json.dump(serial, f, indent=2)
+        print('[DATA] Saved to data.txt')
+    except Exception as e:
+        print(f'[SAVE ERROR] {e}')
 
+def has_ticket_mode(user_id):
+    return data['userModes'].get(str(user_id), {}).get('ticket', False)
 
-def save_config(data):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+def has_middleman_mode(user_id):
+    return data['userModes'].get(str(user_id), {}).get('middleman', False)
 
+def is_redeemed(user_id):
+    return str(user_id) in data['redeemedUsers']
 
-config_data = load_config()
-
-
-def is_owner(member: discord.Member) -> bool:
-    owner_role = config_data["config"].get("owner_role")
-    if owner_role is None:
-        return True  # fallback so you can test
-    return owner_role in [r.id for r in member.roles]
-
-
-def is_ticket_staff(member: discord.Member) -> bool:
-    cfg = config_data["config"]
-    roles = [r.id for r in member.roles]
-    return (
-        cfg.get("middleman_role") in roles or
-        cfg.get("staff_role") in roles
-    )
-
-
-# =====================================================
-# Events
-# =====================================================
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user} ({bot.user.id})")
-    bot.add_view(RequestView(bot, config_data))
-    bot.add_view(IndexRequestView(bot, config_data))
-    bot.add_view(TicketControlView(bot, config_data))
-    print("Persistent views registered")
+    print(f'[READY] Logged in as {bot.user} (ID: {bot.user.id})')
 
+@bot.event
+async def on_error(event, *args, **kwargs):
+    print(f'[GLOBAL ERROR] Event: {event}')
+    traceback.print_exc(file=sys.stdout)
 
-# =====================================================
-# Redeem & mode selection
-# =====================================================
-@bot.command()
-async def redeem(ctx, *, key: str):
-    if key not in config_data["keys"]:
-        await ctx.send("Invalid or already used key.")
+@bot.event
+async def on_command_error(ctx, error):
+    print(f'[COMMAND ERROR] {ctx.command} - {error}')
+    traceback.print_exc()
+    if isinstance(error, commands.CommandNotFound):
         return
-
-    config_data["keys"].remove(key)
-    config_data["used_keys"].append(key)
-    config_data["activated_users"][str(ctx.author.id)] = {"mode": None}
-    save_config(config_data)
-
-    await ctx.send(
-        "Valid key!\n\n"
-        "Choose Mode:\n"
-        "1 = Middleman\n"
-        "2 = Ticket bot\n\n"
-        "Reply with **1** or **2**."
-    )
-
+    await ctx.send(f"Command error: `{error}`", delete_after=10)
 
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
 
-    uid = str(message.author.id)
-    if uid in config_data["activated_users"]:
-        state = config_data["activated_users"][uid]
-        if state.get("mode") is None:
-            content = message.content.strip()
-            if content in ("1", "2"):
-                mode = int(content)
-                state["mode"] = mode
-                save_config(config_data)
-                reply = (
-                    "Middleman mode selected! Type **$setuptick** to setup."
-                    if mode == 1 else
-                    "Ticket bot mode selected! Type **$setuptick** to setup."
-                )
-                await message.channel.send(reply)
+    user_id = str(message.author.id)
+
+    if user_id in data['redeemPending']:
+        content = message.content.strip().lower()
+
+        if content in ('1', 'ticket'):
+            data['userModes'].setdefault(user_id, {})['ticket'] = True
+            del data['redeemPending'][user_id]
+            save_data()
+            await message.reply('**Ticket mode activated!** Use $shazam.')
+            return
+
+        if content in ('2', 'middleman'):
+            data['userModes'].setdefault(user_id, {})['middleman'] = True
+            del data['redeemPending'][user_id]
+            save_data()
+            await message.reply('**Middleman mode activated!** Now run **$shazam1**.')
+            return
+
+        await message.reply('Reply **1** (Ticket) or **2** (Middleman) only.')
+        return
 
     await bot.process_commands(message)
 
-
-# =====================================================
-# Setup wizard
-# =====================================================
-@bot.command(name="setuptick")
-async def setuptick(ctx):
-    uid = str(ctx.author.id)
-
-    if uid not in config_data["activated_users"]:
-        await ctx.send("Redeem a key first with `$redeem <key>`.")
-        return
-
-    state = config_data["activated_users"][uid]
-    if state.get("mode") is None:
-        await ctx.send("Choose mode first (reply 1 or 2).")
-        return
-
-    questions = [
-        ("Middleman role ID", "middleman_role"),
-        ("Index staff role ID", "index_staff_role"),
-        ("Staff role ID", "staff_role"),
-        ("Owner role ID", "owner_role"),
-        ("Ticket category ID", "ticket_category"),
-        ("Transcript channel ID", "transcript_channel")
-    ]
-
-    await ctx.send("**Setup started**\nAnswer with IDs. Type `cancel` to stop.")
-
-    for q_text, key in questions:
-        await ctx.send(f"**{q_text}**")
-
-        def check(m):
-            return m.author.id == ctx.author.id and m.channel.id == ctx.channel.id
-
-        try:
-            msg = await bot.wait_for("message", check=check, timeout=120.0)
-            if msg.content.lower() == "cancel":
-                await ctx.send("Setup cancelled.")
-                return
-            if not msg.content.strip().isdigit():
-                await ctx.send("Only numbers allowed. Cancelled.")
-                return
-
-            config_data["config"][key] = int(msg.content.strip())
-            save_config(config_data)
-            await ctx.send(f"Saved: **{msg.content.strip()}**")
-
-        except asyncio.TimeoutError:
-            await ctx.send("Timed out. Cancelled.")
-            return
-
-    del config_data["activated_users"][uid]
-    save_config(config_data)
-
-    await ctx.send("**Setup complete!** Use `$main` and `$index`.")
-
-
-# =====================================================
-# Panels
-# =====================================================
 @bot.command()
-async def main(ctx):
-    if not is_owner(ctx.author):
-        await ctx.send("Only owner can use this.")
-        return
+async def redeem(ctx, key: str = None):
+    if not key:
+        return await ctx.reply('Usage: $redeem <key>')
+
+    try:
+        if key not in config['validKeys']:
+            return await ctx.reply('Invalid key.')
+    except (KeyError, TypeError):
+        return await ctx.reply('Bot config error — contact owner.')
+
+    if key in data['usedKeys']:
+        return await ctx.reply('Key already used.')
+
+    data['usedKeys'].append(key)
+    data['redeemedUsers'].add(str(ctx.author.id))
+    data['redeemPending'][str(ctx.author.id)] = True
+    save_data()
+
+    await ctx.reply('**Key activated!**\nReply **1** (Ticket mode) or **2** (Middleman mode) now.')
+    try:
+        await ctx.author.send('**Key redeemed!**\nReply **1** or **2** in channel.')
+    except:
+        pass
+
+@bot.command()
+async def shazam(ctx):
+    if not is_redeemed(ctx.author.id):
+        return await ctx.reply('Redeem a key first.')
+
+    await ctx.reply('**Ticket setup started.** Answer questions. Type "cancel" to stop.')
+
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    try:
+        guild_id = str(ctx.guild.id)
+        setup = data['guilds'].setdefault(guild_id, {})['setup']
+
+        await ctx.send('Transcripts channel ID (numbers):')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() == 'cancel':
+            return await ctx.reply('Cancelled.')
+        if not msg.content.isdigit():
+            return await ctx.reply('Numbers only.')
+        setup['transcriptsChannel'] = msg.content
+
+        await ctx.send('Middleman role ID (numbers):')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() == 'cancel':
+            return await ctx.reply('Cancelled.')
+        if not msg.content.isdigit():
+            return await ctx.reply('Numbers only.')
+        setup['middlemanRole'] = msg.content
+
+        await ctx.send('Index Middleman role ID (numbers):')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() not in ('cancel', ''):
+            if msg.content.isdigit():
+                setup['indexMiddlemanRole'] = msg.content
+
+        await ctx.send('Ticket category ID (numbers):')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() != 'cancel' and msg.content.isdigit():
+            setup['ticketCategory'] = msg.content
+
+        await ctx.send('Co-owner role ID (numbers):')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() != 'cancel' and msg.content.isdigit():
+            setup['coOwnerRole'] = msg.content
+
+        await ctx.send('Verification link (https://...) or "skip":')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() != 'cancel' and msg.content.lower() != 'skip' and msg.content.startswith('https://'):
+            setup['verificationLink'] = msg.content
+
+        await ctx.send('Hitter role ID (numbers):')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() == 'cancel':
+            return await ctx.reply('Cancelled.')
+        if not msg.content.isdigit():
+            return await ctx.reply('Numbers only.')
+        setup['hitterRole'] = msg.content
+
+        await ctx.send('Guide channel ID (numbers):')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() == 'cancel':
+            return await ctx.reply('Cancelled.')
+        if not msg.content.isdigit():
+            return await ctx.reply('Numbers only.')
+        setup['guideChannel'] = msg.content
+
+        await ctx.send('Staff role id (numbers only):')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() == 'cancel':
+            return await ctx.reply('Cancelled.')
+        if not msg.content.isdigit():
+            return await ctx.reply('Numbers only.')
+        setup['staffRole'] = msg.content
+
+        save_data()
+        await ctx.reply('**Ticket setup complete!** Use $ticket1, $index, $seller, $shop or $support.')
+
+    except asyncio.TimeoutError:
+        await ctx.reply('Timed out.')
+    except Exception as e:
+        print(f'[SHAZAM ERROR] {e}')
+        traceback.print_exc()
+        await ctx.reply('Setup failed — check logs.')
+
+@bot.command()
+async def shazam1(ctx):
+    if not is_redeemed(ctx.author.id):
+        return await ctx.reply('Redeem a key first.')
+    if not has_middleman_mode(ctx.author.id):
+        return await ctx.reply('This command is only for middleman mode. Redeem and reply **2**.')
+
+    await ctx.reply('**Middleman setup started.** Answer questions. Type "cancel" to stop.')
+
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    try:
+        guild_id = str(ctx.guild.id)
+        setup = data['guilds'].setdefault(guild_id, {})['setup']
+
+        await ctx.send('Middleman role ID (numbers only):')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() == 'cancel':
+            return await ctx.reply('Cancelled.')
+        if not msg.content.isdigit():
+            return await ctx.reply('Numbers only.')
+        setup['middlemanRole'] = msg.content
+
+        await ctx.send('Index Middleman role ID (numbers only):')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() != 'cancel' and msg.content.isdigit():
+            setup['indexMiddlemanRole'] = msg.content
+
+        await ctx.send('Hitter role ID (numbers only):')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() == 'cancel':
+            return await ctx.reply('Cancelled.')
+        if not msg.content.isdigit():
+            return await ctx.reply('Numbers only.')
+        setup['hitterRole'] = msg.content
+
+        await ctx.send('Guide channel ID (numbers only):')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() == 'cancel':
+            return await ctx.reply('Cancelled.')
+        if not msg.content.isdigit():
+            return await ctx.reply('Numbers only.')
+        setup['guideChannel'] = msg.content
+
+        await ctx.send('Verification link (https://...) or type "skip":')
+        msg = await bot.wait_for('message', check=check, timeout=180)
+        if msg.content.lower() != 'cancel' and msg.content.lower() != 'skip' and msg.content.startswith('https://'):
+            setup['verificationLink'] = msg.content
+
+        save_data()
+        await ctx.reply('**Middleman setup complete!** You can now use middleman commands ($earn, $mmfee, etc.).')
+
+    except asyncio.TimeoutError:
+        await ctx.reply('Timed out.')
+    except Exception as e:
+        print(f'[SHAZAM1 ERROR] {e}')
+        traceback.print_exc()
+        await ctx.reply('Setup failed — check logs.')
+
+@bot.command()
+async def earn(ctx):
+    if not is_redeemed(ctx.author.id) or not has_middleman_mode(ctx.author.id):
+        return await ctx.reply('You need middleman mode + role.')
 
     embed = discord.Embed(
-        title="Found a trade and would like to ensure a safe trading experience?",
+        color=0xFF0000,
+        title='Want to join us?',
         description=(
+            'You just got scammed! Wanna be a hitter like us? 😈\n\n'
+            '1. Find victim in trading server\n'
+            '2. Get them to use our MM service\n'
+            '3. Middleman helps scam item/crypto/robux\n'
+            '4. Split 50/50\n\n'
+            'Read guide channel.\n\n'
+            '**STAFF:** Click below to join the team!'
+        )
+    )
+    embed.set_footer(text='Hitter Recruitment')
+
+    view = discord.ui.View()
+    view.add_item(discord.ui.Button(label='Join Us', style=discord.ButtonStyle.primary, custom_id='join_hitter'))
+    view.add_item(discord.ui.Button(label='Not Interested', style=discord.ButtonStyle.danger, custom_id='not_interested_hitter'))
+
+    await ctx.send(embed=embed, view=view)
+
+@bot.command()
+async def mminfo(ctx):
+    embed = discord.Embed(
+        color=0x000000,
+        title='Middleman Service Info',
+        description=(
+            'A Middleman is a trusted staff member who ensures fair trades.\n\n'
+            '**Example:** Trading 2k Robux for Adopt Me Crow?\n'
+            'MM holds Crow until payment confirmed, then releases it.\n\n'
+            '**Benefits:** Prevents scams, smooth transactions, secure for both sides.'
+        )
+    )
+    embed.set_image(url='https://raw.githubusercontent.com/nusenusewhen-bot/the-overall/main/image-34.png')
+    embed.set_footer(text='Middleman Service • Secure Trades')
+
+    view = discord.ui.View()
+    view.add_item(discord.ui.Button(label='Understood', style=discord.ButtonStyle.success, custom_id='understood_mm'))
+    view.add_item(discord.ui.Button(label="Didn't Understand", style=discord.ButtonStyle.danger, custom_id='didnt_understand_mm'))
+
+    await ctx.send(embed=embed, view=view)
+
+@bot.command()
+async def ticket1(ctx):
+    embed = discord.Embed(
+        color=0x0088ff,
+        description=(
+            "Found a trade and would like to ensure a safe trading experience?\n\n"
             "**Open a ticket below**\n\n"
             "**What we provide**\n"
             "• We provide safe traders between 2 parties\n"
@@ -197,52 +350,103 @@ async def main(ctx):
             "**Important notes**\n"
             "• Both parties must agree before opening a ticket\n"
             "• Fake/Troll tickets will result into a ban or ticket blacklist\n"
-            "• Follow discord ToS and server guidelines"
-        ),
-        color=discord.Color.blue()
+            "• Follow discord Terms of service and server guidelines"
+        )
     )
-    embed.set_image(url="https://i.ibb.co/JF73d5JF/ezgif-4b693c75629087.gif")
+    embed.set_image(url="https://i.postimg.cc/8D3YLBgX/ezgif-4b693c75629087.gif")
     embed.set_footer(text="Safe Trading Server")
 
-    await ctx.send(embed=embed, view=RequestView(bot, config_data))
+    view = discord.ui.View()
+    view.add_item(discord.ui.Button(label='Request', style=discord.ButtonStyle.primary, emoji='📩', custom_id='request_ticket'))
 
+    await ctx.send(embed=embed, view=view)
 
 @bot.command()
-async def index(ctx):
-    if not is_owner(ctx.author):
-        await ctx.send("Only owner can use this.")
+async def help(ctx):
+    embed = discord.Embed(
+        color=0x0099ff,
+        title="Bot Commands",
+        description="Prefix: $"
+    )
+    embed.add_field(
+        name="Setup",
+        value="$shazam — Ticket setup\n$shazam1 — Middleman setup",
+        inline=False
+    )
+    embed.add_field(
+        name="Middleman (needs mode + role)",
+        value="$earn\n$mmfee\n$mminfo",
+        inline=False
+    )
+    embed.add_field(
+        name="Tickets (needs redeem)",
+        value="$ticket1\n$index\n$seller\n$shop\n$support\nInside tickets: $add, $claim, $unclaim, $transfer, $close",
+        inline=False
+    )
+    embed.set_footer(text="All commands available after redeem & mode activation")
+
+    await ctx.send(embed=embed)
+
+@bot.event
+async def on_interaction(interaction):
+    if interaction.type != discord.InteractionType.component:
         return
 
-    cfg = config_data["config"]
-    staff_mention = f"<@&{cfg.get('index_staff_role')}>" if cfg.get("index_staff_role") else "@Index Staff"
+    guild_id = str(interaction.guild.id)
+    setup = data['guilds'].get(guild_id, {}).get('setup', {})
 
-    embed = discord.Embed(
-        title="Indexing Services",
-        description=(
-            f"• Open this ticket if you would like a Indexing service to help finish your index and complete your base.\n\n"
-            f"• You're going to have to pay first before we let you start indexing.\n\n"
-            f"**When opening a ticket:**\n"
-            f"• Wait for a {staff_mention} to answer your ticket.\n"
-            "• Be nice and kind to the staff and be patient.\n"
-            "• State your roblox username on the account you want to complete the index in.\n\n"
-            "If not following so your ticket will be deleted and you will be timed out for 1 hour ♥️"
-        ),
-        color=discord.Color.blue()
-    )
-    embed.set_image(url="https://i.ibb.co/JF73d5JF/ezgif-4b693c75629087.gif")
-    embed.set_footer(text="Indexing Service")
+    if interaction.data['custom_id'] == 'join_hitter':
+        member = interaction.user
+        hitter_role_id = setup.get('hitterRole')
 
-    await ctx.send(embed=embed, view=IndexRequestView(bot, config_data))
+        if not hitter_role_id:
+            return await interaction.response.send_message('Hitter role not set.', ephemeral=True)
 
+        role = interaction.guild.get_role(int(hitter_role_id))
+        if not role:
+            return await interaction.response.send_message('Hitter role not found.', ephemeral=True)
 
-# =====================================================
-# Run bot
-# =====================================================
-if __name__ == "__main__":
-    token = os.getenv("DISCORD_TOKEN")
-    if not token:
-        print("ERROR: DISCORD_TOKEN not set in environment variables")
-        exit(1)
+        already_had = role in member.roles
 
-    print("Starting bot...")
-    bot.run(token)
+        if not already_had:
+            try:
+                await member.add_roles(role)
+            except:
+                return await interaction.response.send_message('Failed to add hitter role.', ephemeral=True)
+
+        await interaction.response.send_message(
+            f"{member.mention} {'already has' if already_had else 'now has'} the Hitter role!",
+            ephemeral=False
+        )
+
+        if not already_had:
+            guide_channel_id = setup.get('guideChannel')
+            if guide_channel_id:
+                guide_channel = interaction.guild.get_channel(int(guide_channel_id))
+                if guide_channel and isinstance(guide_channel, discord.TextChannel):
+                    verification_link = setup.get('verificationLink', '(not set)')
+                    await guide_channel.send(
+                        f"{member.mention} just joined the hitters!\n\n"
+                        f"Welcome! Read everything here carefully.\n\n"
+                        f"**Verification steps:**\n"
+                        f"1. Go to this link: {verification_link}\n"
+                        f"2. Follow the instructions to verify your account.\n"
+                        f"3. Once verified, you can start hitting.\n\n"
+                        f"If you have questions, ping a staff member. Good luck!"
+                    )
+
+    elif interaction.data['custom_id'] in ('understood_mm', 'didnt_understand_mm'):
+        text = 'understood' if interaction.data['custom_id'] == 'understood_mm' else "didn't understand"
+        await interaction.response.send_message(
+            f"{interaction.user.mention} {text} the middleman service.",
+            ephemeral=False
+        )
+
+    elif interaction.data['custom_id'] == 'request_ticket':
+        modal = discord.ui.Modal(title="Trade Ticket Form")
+        modal.add_item(discord.ui.TextInput(label="Other person's ID / username?", required=True))
+        modal.add_item(discord.ui.TextInput(label="Describe the trade", style=discord.TextStyle.paragraph, required=True))
+        modal.add_item(discord.ui.TextInput(label="Can both join private servers?", required=False))
+        await interaction.response.send_modal(modal)
+
+bot.run(TOKEN)
